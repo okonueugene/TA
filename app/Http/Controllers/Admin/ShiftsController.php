@@ -55,6 +55,7 @@ class ShiftsController extends Controller
             ])
                 ->join('employees', 'employee_shifts.employee_pin', '=', 'employees.pin')
                 ->whereMonth('employee_shifts.shift_date', $currentMonth)
+                ->orderBy('employee_shifts.shift_date', 'desc')
                 ->whereYear('employee_shifts.shift_date', $currentYear);
 
             return DataTables::of($query)
