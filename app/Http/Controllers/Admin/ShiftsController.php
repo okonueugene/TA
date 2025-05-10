@@ -11,27 +11,6 @@ class ShiftsController extends Controller
     public function index(Request $request)
     {
 
-        // protected $fillable = [
-        //     'employee_pin',
-        //     'shift_date',
-        //     'clock_in_attendance_id',
-        //     'clock_out_attendance_id',
-        //     'clock_in_time',
-        //     'clock_out_time',
-        //     'hours_worked',
-        //     'shift_type',
-        //     'is_complete',
-        //     'notes'
-        // ];
-
-        // protected $casts = [
-        //     'shift_date' => 'date',
-        //     'clock_in_time' => 'datetime',
-        //     'clock_out_time' => 'datetime',
-        //     'is_complete' => 'boolean',
-        //     'hours_worked' => 'float'
-        // ];
-
         // Determine the target month and year
         $currentMonth = $request->get('month', now()->month);
         $currentYear  = $request->get('year', now()->year);
