@@ -107,7 +107,7 @@
                                         <a href="#" class="dropdown-toggle" data-toggle="dropdown">
                                             <div class="user-toggle">
                                                 <div class="user-avatar sm">
-                                                    <img src="{{ Auth::user()->email }}" alt="">
+                                                    <img src="{{ asset('theme/images/logo.png') }}" alt="">
                                                 </div>
                                                 <div class="user-info d-none d-md-block">
                                                     <div class="user-status">

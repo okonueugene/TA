@@ -428,15 +428,14 @@ class ProcessAttendanceShifts extends Command
       * @param Carbon $date The date to check (should be the calculated shift day).
       * @return bool
       */
-     protected function isHoliday(Carbon $date): bool
-     {
-         // Check if the calculated shift day falls within the start and end date of any holiday
-         // Using whereDate for robust date-only comparison
-         return Holiday::where(function ($query) use ($date) {
-             $query->whereDate('start_date', '<=', $date->toDateString())
-                   ->whereDate('end_date', '>=', $date->toDateString());
-         })->exists();
-     }
+  protected function isHoliday(Carbon $date): bool
+    {
+        // Check if the date is exactly the start_date of a Holiday record
+        // AND the description contains "Public holiday"
+        return Holiday::whereDate('start_date', '=', $date->toDateString())
+                      ->where('description', 'LIKE', '%Public holiday%') // Check if description contains "Public holiday"
+                      ->exists();
+    }
 
      /**
       * Calculates overtime hours for a complete shift based on shift type and cutoffs.
@@ -522,7 +521,7 @@ class ProcessAttendanceShifts extends Command
                 'shift_type' => $shiftType,
                 'is_complete' => $isComplete,
                 'notes' => $notes,
-                'overtime_hours' => round($overtimeHours, 2), // Store rounded overtime
+                'overtime_hours' => (float) round($overtimeHours, 2), // Store rounded overtime
                 'is_holiday' => $isHoliday // Store holiday status
             ]
         );

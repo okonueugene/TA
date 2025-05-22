@@ -76,6 +76,7 @@
     
         var calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
+            showNonCurrentDates: false,
             height: 'auto',
             headerToolbar: {
                 left: 'prev,next today',

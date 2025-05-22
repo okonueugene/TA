@@ -19,6 +19,8 @@ class EmployeeShift extends Model
         'hours_worked',
         'shift_type',
         'is_complete',
+        'overtime_hours',
+        'is_holiday',
         'notes'
     ];
 
@@ -27,7 +29,10 @@ class EmployeeShift extends Model
         'clock_in_time' => 'datetime',
         'clock_out_time' => 'datetime',
         'is_complete' => 'boolean',
-        'hours_worked' => 'float'
+        'hours_worked' => 'float',
+        'overtime_hours' => 'float',
+        'is_holiday' => 'boolean'
+        
     ];
 
     public function employee()

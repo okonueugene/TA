@@ -4,6 +4,10 @@ namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
+use Illuminate\Session\TokenMismatchException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Illuminate\Support\Facades\Log;
 
 class Handler extends ExceptionHandler
 {
@@ -59,62 +63,54 @@ class Handler extends ExceptionHandler
 
     public function render($request, Throwable $exception)
     {
+        // Improved handling for TokenMismatchException
         if ($exception instanceof TokenMismatchException) {
-            // Improved handling for expired CSRF tokens / sessions
+            // Log the error for debugging purposes
+            Log::notice('CSRF token mismatch for user: ' . 
+                ($request->user() ? $request->user()->id : 'guest') . 
+                ' on URL: ' . $request->fullUrl());
+            
+            // Always redirect to login for better security
             if ($request->expectsJson()) {
                 return response()->json([
-                    'message' => 'Your session has expired. Please refresh and try again.',
+                    'message' => 'Your session has expired. Please refresh and sign in again.',
                     'status' => 419
                 ], 419);
             }
             
-            // Adapt this redirect based on your authentication status
-            if (auth()->check()) {
-                // If user is logged in, redirect to an appropriate dashboard
-                $user_type = auth()->user()->user_type;
-                $route = match($user_type) {
-                    'admin' => 'admin.admin-dashboard',
-                    'employee' => 'employee.employee-dashboard',
-                    'gm' => 'gm.gm-dashboard',
-                    'manager' => 'manager.manager-dashboard',
-                    default => 'dashboard'
-                };
-                
-                return redirect()->route($route)
-                    ->withErrors(['message' => 'Your session has expired. Please try again.']);
-            } else {
-                // If not logged in, redirect to login
-                return redirect()->route('login')
-                    ->withErrors(['message' => 'Your session has expired. Please log in again.']);
-            }
+            // Clear session data to ensure clean state
+            $request->session()->flush();
+            
+            // Redirect to login with a clear message
+            return redirect()->route('login')
+                ->with('status', 'error')
+                ->withErrors([
+                    'message' => 'Your session has expired or is invalid. Please sign in again to continue.',
+                    'auto_refresh' => true
+                ]);
         }
 
         if ($exception instanceof NotFoundHttpException) {
             return back()->withErrors([
-                'delayMessage' => 'Page not found. Redirecting in 3 seconds...', // Your delay message
-                'delaySeconds' => 3, // Delay in seconds
+                'delayMessage' => 'Page not found. Redirecting in 3 seconds...', 
+                'delaySeconds' => 3,
             ]);
         }
 
         if ($exception instanceof \Spatie\Permission\Exceptions\UnauthorizedException) {
-            $this->renderable(function (\Spatie\Permission\Exceptions\UnauthorizedException $e, $request) {
-                return redirect()->route('dashboard')->withErrors(['message' => 'You are not authorized to access this page.']);
-            });
+            return redirect()->route('login')
+                ->withErrors(['message' => 'You are not authorized to access this page. Please log in with appropriate credentials.']);
         }
-        // Add handling for TransportException here
-        if ($exception instanceof \Symfony\Component\Mailer\Exception\TransportException) {
-            $user_type = auth()->user()->user_type;
-            if($user_type == 'admin') {
-                return redirect()->route('admin.admin-dashboard')->withErrors(['message' => 'Email not sent.']);
-            } elseif($user_type == 'employee') {
-                return redirect()->route('employee.employee-dashboard')->withErrors(['message' => 'Email not sent.']);
-            } elseif($user_type == 'gm') {
-                return redirect()->route('gm.gm-dashboard')->withErrors(['message' => 'Email not sent.']);
-            } elseif($user_type == 'manager') {
-                return redirect()->route('manager.manager-dashboard')->withErrors(['message' => 'Email not sent.']);
-            } else {
-                return redirect()->route('login')->withErrors(['message' => 'Email not sent.']);
-            }
+        
+        // Improved handling for TransportException
+        if ($exception instanceof TransportException) {
+            // Log the email failure
+            Log::error('Email sending failed: ' . $exception->getMessage());
+            
+            // Always redirect to login when email sending fails
+            return redirect()->route('login')
+                ->with('status', 'error')
+                ->withErrors(['message' => 'We encountered an error sending email. Please try again later.']);
         }
 
         return parent::render($request, $exception);
