@@ -26,16 +26,16 @@ class HomeController extends Controller
 
         //user_types: admin, employee, gm,manager
         $user_type = auth()->user()->user_type;
-        if($user_type == 'admin') {
+        if($user_type == 'admin' || $user_type == 'manager') {
             return redirect()->route('admin.admin-dashboard');
-        } elseif($user_type == 'employee') {
-            return redirect()->route('employee.employee-dashboard');
-        } elseif($user_type == 'gm') {
-            return redirect()->route('gm.gm-dashboard');
-        } elseif($user_type == 'manager') {
-            return redirect()->route('manager.manager-dashboard');
-        } else {
+        }  else {
             return redirect()->route('login');
         }
+    }
+
+    public function activity()
+    {
+        $activity = activity()->all();
+        return view('admin.activity');
     }
 }

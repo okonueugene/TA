@@ -17,6 +17,7 @@
         "psr/simple-cache": "^2.0",
         "pusher/pusher-php-server": "^7.2",
         "rappasoft/laravel-authentication-log": "^2.0",
+        "spatie/laravel-activitylog": "^4.7",
         "yajra/laravel-datatables": "^9.0"
     },
     "require-dev": {

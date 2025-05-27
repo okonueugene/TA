@@ -25,25 +25,5 @@ class UserSeeder extends Seeder
 
         ]);
 
-        $user1 = User::create([
-            'name' => 'Employee',
-            'email' => 'employee@employee.com',
-            'password' => Hash::make('12345678'),
-            'user_type' => 'employee',
-        ]);
-
-        $user2 = User::create([
-            'name' => 'Manager',
-            'email' => 'manager@manager.com',
-            'password' => Hash::make('12345678'),
-            'user_type' => 'manager',
-        ]);
-
-        $user3 = User::create([
-            'name' => 'General Manager',
-            'email' => 'generalmanager@gmail.com',
-            'password' => Hash::make('12345678'),
-            'user_type' => 'general_manager',
-        ]);
     }
 }

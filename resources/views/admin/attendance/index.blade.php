@@ -145,6 +145,18 @@
         .minimal-table tbody tr:hover {
             background-color: #f9f9f9;
         }
+
+        #loadingSpinner {
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1050;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
     </style>
 @endpush
 
@@ -177,6 +189,7 @@
                 return url + '?' + params.toString();
             }
 
+            var url = buildAjaxUrl();
 
             var columns = [
                 // Checkbox column
@@ -254,54 +267,77 @@
                 },
             ];
 
+            var filters = {
+                month: $('#monthSelect').val() || new URLSearchParams(window.location.search).get('month') ||
+                    {{ $currentMonth }},
+                year: $('#yearSelect').val() || new URLSearchParams(window.location.search).get('year') ||
+                    {{ $currentYear }}
+            };
+
             // Initialize DataTable
-            var attendanceTable = $('#page_table').DataTable({
-                processing: true,
-                serverSide: true,
-                ajax: {
-                    url: buildAjaxUrl(), // Use the function to get the initial URL
-                    type: 'GET'
-                },
-                columns: columns,
-                "order": [
-                    [1, 'asc']
-                ]
-            });
+            var page_table = __initializePageTable(url, columns, filters);
 
-            // Handle month/year selection change
-            $('#applyMonthYear').on('click', function() {
-                // Reload the DataTable with the new month and year from the dropdowns
-                attendanceTable.ajax.url(buildAjaxUrl()).load();
-            });
+        });
 
-            // Optional: Add event listener for the master checkbox if you want multi-select functionality
-            $('#uid').on('click', function() {
-                // Logic to check/uncheck all individual checkboxes
-                $('.uid').prop('checked', $(this).prop('checked'));
-            });
+        // Handle month/year selection change
+        $('#applyMonthYear').on('click', function() {
+            attendanceTable.ajax.url(buildAjaxUrl()).load();
+        });
 
-            // Handle the Export button click
-            $('#exportBtn').on('click', function(e) {
-                e.preventDefault();
+        // Optional: Add event listener for the master checkbox if you want multi-select functionality
+        $('#uid').on('click', function() {
+            $('.uid').prop('checked', $(this).prop('checked'));
+        });
 
-                // Get the current search value from DataTables' global search input
-                var currentSearchValue = attendanceTable.search();
+        // Handle the Export button click
+        $('#exportBtn').on('click', function(e) {
+            e.preventDefault();
 
-                // Construct the export URL with current month, year, and search value
-                var exportUrl = "{{ route('admin.attendance.export') }}"; // Changed to the new route
-                var params = {
-                    month: {{ $currentMonth }},
-                    year: {{ $currentYear }}
-                };
+            // Show spinner
+            $('#loadingSpinner').show();
 
-                if (currentSearchValue) {
-                    params.search_value = currentSearchValue;
-                }
+            // Get selected month and year
+            const {
+                month,
+                year
+            } = getSelectedMonthYear();
 
-                // Redirect to the export URL
-                window.location.href = exportUrl + '?' + $.param(params);
-            });
+            // Get current search value from DataTable
+            const searchValue = attendanceTable.search();
 
+            // Build the export URL with search parameter
+            let exportUrl = `{{ url('admin/attendances/export') }}?month=${month}&year=${year}`;
+            if (searchValue && searchValue.trim() !== '') {
+                exportUrl += `&search=${encodeURIComponent(searchValue)}`;
+            }
+
+            // Use fetch to send a GET request to the export route
+            fetch(exportUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    // Create a temporary link to trigger the download
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `attendance_report_${year}_${month}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url); // Clean up
+                    // Hide spinner
+                    $('#loadingSpinner').hide();
+                })
+                .catch(error => {
+                    console.error('Error exporting data:', error);
+                    alert('Failed to export data. Please try again.');
+                    // Hide spinner
+                    $('#loadingSpinner').hide();
+                });
         });
     </script>
 @endpush

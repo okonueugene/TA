@@ -8,10 +8,10 @@
         </div>
         <div class="nk-sidebar-brand">
             <a href="{{ route('admin.admin-dashboard') }}" class="logo-link nk-sidebar-logo">
-                    <img class="logo-light logo-img" src="{{ asset('theme/images/logo.png') }}"
-                        srcset="{{ asset('theme/images/logo.png') }} 2x" alt="logo">
-                    <img class="logo-dark logo-img" src="{{ asset('theme/images/logo.png') }}"
-                        srcset="{{ asset('theme/images/logo.png') }} 2x" alt="logo-dark">
+                <img class="logo-light logo-img" src="{{ asset('theme/images/logo.png') }}"
+                    srcset="{{ asset('theme/images/logo.png') }} 2x" alt="logo">
+                <img class="logo-dark logo-img" src="{{ asset('theme/images/logo.png') }}"
+                    srcset="{{ asset('theme/images/logo.png') }} 2x" alt="logo-dark">
             </a>
         </div>
     </div><!-- .nk-sidebar-element -->
@@ -56,11 +56,11 @@
                         </li>
                         <li class="nk-menu-item">
                             <a href="{{ url('admin/attendance') }}" class="nk-menu-link">
-                                <span class="nk-menu-icon"><em class="icon ni ni-briefcase"></em></span>
+                                <span class="nk-menu-icon"><em class="icon ni ni-calendar-check"></em></span>
                                 <span class="nk-menu-text">Attendance</span>
                             </a>
                         </li>
-                         <li class="nk-menu-item">
+                        <li class="nk-menu-item">
                             <a href="{{ url('admin/shifts') }}" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-briefcase"></em></span>
                                 <span class="nk-menu-text">Shifts</span>
@@ -70,6 +70,20 @@
                     <li class="nk-menu-heading">
                         <h6 class="overline-title text-primary-alt">Settings</h6>
                     </li><!-- .nk-menu-heading -->
+                     <li class="nk-menu-item">
+                        <a href="{{ url('admin/users') }}" class="nk-menu-link">
+                            <span class="nk-menu-icon"><em class="icon ni ni-users"></em></span>
+                            <span class="nk-menu-text">Users</span>
+                        </a>
+                    </li><!-- .nk-menu-item -->
+                    @if(auth()->user()->user_type == 'admin')
+                     <li class="nk-menu-item">
+                        <a href="{{ url('admin/logs') }}" class="nk-menu-link">
+                            <span class="nk-menu-icon"><em class="icon ni ni-history"></em></span>
+                            <span class="nk-menu-text">Logs</span>
+                        </a>
+                    </li><!-- .nk-menu-item -->
+                    @endif
                     <li class="nk-menu-item">
                         <a href="{{ route('admin.admin-site') }}" class="nk-menu-link">
                             <span class="nk-menu-icon"><em class="icon ni ni-setting"></em></span>

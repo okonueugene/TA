@@ -8,7 +8,7 @@ class AdminMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        if(auth()->user()->user_type !='admin'){
+        if(auth()->user()->user_type !='admin' && auth()->user()->user_type !='manager') {
             abort(403,'Unauthorized action.');
         }
         return $next($request);

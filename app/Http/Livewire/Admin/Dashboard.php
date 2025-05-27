@@ -60,8 +60,10 @@ class Dashboard extends Component
 
         $daysWorked   = DateHelper::getBusinessDays(today());
 
+        $deviceStatus = app('tad')->get_free_sizes()->to_array()['Row'] ?? [];
 
-        return view('livewire.admin.dashboard', compact('employees', 'clockins', 'clockouts', 'weekDays', 'weeklyAttendance', 'businessDays', 'presentEmployees', 'daysWorked', 'presentEmployeesMonth'))
+
+        return view('livewire.admin.dashboard', compact('employees', 'clockins', 'clockouts', 'weekDays', 'weeklyAttendance', 'businessDays', 'presentEmployees', 'daysWorked', 'presentEmployeesMonth', 'deviceStatus'))
             ->extends('layouts.admin', ['title' => $title])
             ->section('content')
         ;

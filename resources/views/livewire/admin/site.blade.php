@@ -131,7 +131,7 @@
                                                     <div class="form-control-wrap">
                                                         <input wire:model="name" type="text"
                                                             class="form-control name" name="name" id="default-04"
-                                                            placeholder="{{ $settings->name }}">
+                                                            placeholder="Site Name" value="{{ $settings->$name ?? '' }}">
                                                     </div>
                                                     @error('name')
                                                         <div class="form-note text-danger mt-1">{{ $message }}</div>
@@ -152,8 +152,8 @@
                                                     <div class="form-control-wrap">
                                                         <input wire:model="email" type="email"
                                                             class="form-control email" name="email"
-                                                            value="{{ $settings->$email }}"
-                                                            placeholder="{{ $settings->email }}">
+                                                            value="{{ $settings->$email ?? '' }}"
+                                                            placeholder="doV0C@example.com" id="default-05">
                                                     </div>
                                                     @error('email')
                                                         <div class="form-note text-danger mt-1">{{ $message }}</div>
@@ -173,9 +173,9 @@
                                                 <div class="form-group">
                                                     <div class="form-control-wrap"><input wire:model="copyright"
                                                             type="text" class="form-control" id="comp-copyright"
-                                                            placeholder="{{ $settings->copyright }}">
+                                                            placeholder="{{ $settings->copyright ?? '' }}">
                                                     </div>
-                                                    @error('copyright')
+                                                    @error('copyright');
                                                         <div class="form-note text-danger mt-1">{{ $message }}</div>
                                                     @enderror
 
@@ -239,11 +239,16 @@
                         </div>
                     </div>
                     <div class="row float-left">
-                        <div class="col-lg-7">
-                            <div class="form-group mt-2"><button wire:submit='updateSiteSettings'type="submit"
-                                    class="btn btn-lg btn-primary">Update</button>
-                            </div>
-                        </div>
+                       <div class="col-lg-7">
+    <div class="form-group mt-2">
+        <button wire:submit='updateSiteSettings' type="submit"
+            class="btn btn-md btn-primary {{ $user->user_type !== 'admin' ? 'disabled' : '' }}"
+            id="update-site"
+            {{ $user->user_type !== 'admin' ? 'disabled' : '' }}>
+            Update
+        </button>
+    </div>
+</div>
                     </div>
                     </form>
                 </div>

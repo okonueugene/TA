@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\Facades\DataTables;
 
 class EmployeesController extends Controller
@@ -15,31 +16,29 @@ class EmployeesController extends Controller
 
             return DataTables::of($query)
                 ->addColumn('action', function ($row) {
-                    $html = ' <div class="dropdown">
-                                                <a href="#" class="btn btn-trigger btn-icon dropdown-toggle"
-                                                    data-toggle="dropdown">
-                                                    <em class="icon ni ni-more-h"></em>
-                                                </a>
-                                                <div class="dropdown-menu dropdown-menu-right">
-                                                    <ul class="link-list-opt no-bdr">
-                                                        <li>
-                                                            <a href="javascript:void(0);"
-                                                             class="dropdown-item modal-button"
-                                                             data-href="' . action('App\Http\Controllers\Admin\EmployeesController@edit', $row->id) . '"
-                                                             >
-                                                                <em class="icon ni ni-edit"></em>
-                                                                <span>Edit</span>
-                                                            </a>
-                                                        </li>
-                                                        <li>
-                                                            <a href="' . action('App\Http\Controllers\Admin\EmployeesController@destroy', $row->id) . '"
-                                                                <em class="icon ni ni-trash"></em>
-                                                                <span>Delete</span>
-                                                            </a>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </div>';
+                    $html =
+                    '
+                     <div class="btn-group">
+                         <a href="#" class="btn btn-trigger btn-icon dropdown-toggle" data-toggle="dropdown">
+                             <em class="icon ni ni-more-h"></em>
+                         </a>
+                         <ul class="dropdown-menu">
+                             <li>
+                                 <a href="javascript:void(0);" class="dropdown-item modal-button"
+                                     data-href="' . action('App\Http\Controllers\Admin\EmployeesController@edit', $row->id) . '">
+                                     Edit
+                                 </a>
+                             </li>
+                             <li>
+                                 <a href="javascript:void(0);" class="dropdown-item delete-record"
+                                     data-href="' . action('App\Http\Controllers\Admin\EmployeesController@destroy', $row->id) . '">
+                                    Delete
+                                 </a>
+                             </li>
+                         </ul>
+                     </div>
+                    '
+                    ;
 
                     return $html;
                 })
@@ -74,58 +73,133 @@ class EmployeesController extends Controller
 
     public function store(Request $request)
     {
-        $request->validate([
-            'empname'       => 'required',
-            'empgender'     => 'required',
-            'empoccupation' => 'required',
-            'empresidence'  => 'required',
-            'team'          => 'required',
-        ]);
+        try
+        {
+            DB::beginTransaction();
+            $request->validate([
+                'empname'       => 'required',
+                'empgender'     => 'required',
+                'empoccupation' => 'required',
+                'empresidence'  => 'required',
+                'team'          => 'required',
+            ]);
 
-        Employee::create([
-            'empname'       => $request->empname,
-            'empgender'     => $request->empgender,
-            'empoccupation' => $request->empoccupation,
-            'empresidence'  => $request->empresidence,
-            'team'          => $request->team,
-        ]);
+            //get the last employee pin
+            $lastEmployee = Employee::orderBy('pin', 'desc')->first();
 
-        return redirect()->route('admin.employees.index')->with('success', 'Employee created successfully.');
+            Employee::create([
+                'pin'           => $lastEmployee->pin + 1,
+                'empname'       => $request->empname,
+                'empgender'     => $request->empgender,
+                'empoccupation' => $request->empoccupation,
+                'empresidence'  => $request->empresidence,
+                'team'          => $request->team,
+            ]);
+
+            DB::commit();
+            // Log activity
+            activity()
+                ->causedBy(auth()->user())
+                ->event('created')
+                ->performedOn($employee)
+                ->useLog('Employee')
+                ->log('added a new employee');
+            $output = ['success' => true,
+                'msg'                => 'Employee created successfully',
+            ];
+
+            return response()->json($output);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $output = ['success' => false,
+                'msg'                => 'Failed to create employee',
+            ];
+            return response()->json($output);
+        }
+
+    }
+
+    public function show($id)
+    {
+        $employee = Employee::findOrFail($id);
+        return view('admin.employees.show', compact('employee'));
     }
 
     public function edit($id)
     {
         $employee = Employee::findOrFail($id);
-        return view('livewire.admin.edit', compact('employee'));
+        return view('admin.employees.edit', compact('employee'));
     }
 
     public function update(Request $request, $id)
     {
-        $request->validate([
-            'empname'       => 'required',
-            'empgender'     => 'required',
-            'empoccupation' => 'required',
-            'empresidence'  => 'required',
-            'team'          => 'required',
-        ]);
+        try
+        {
+            DB::beginTransaction();
 
-        $employee = Employee::findOrFail($id);
+            $employee = Employee::findOrFail($id);
 
-        $employee->update([
-            'empname'       => $request->empname,
-            'empgender'     => $request->empgender,
-            'empoccupation' => $request->empoccupation,
-            'empresidence'  => $request->empresidence,
-            'team'          => $request->team,
-        ]);
+            $employee->update([
+                'empname'       => $request->empname,
+                'empgender'     => $request->empgender,
+                'empoccupation' => $request->empoccupation,
+                'empresidence'  => $request->empresidence,
+                'team'          => $request->team,
+            ]);
 
-        return redirect()->route('admin.employees.index')->with('success', 'Employee updated successfully.');
+            DB::commit();
+            // Log activity
+            activity()
+                ->causedBy(auth()->user())
+                ->event('updated')
+                ->performedOn($employee)
+                ->useLog('Employee')
+                ->log('updated an employee');
+            $output = ['success' => true,
+                'msg'                => 'Employee updated successfully',
+            ];
+
+            return response()->json($output);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $output = ['success' => false,
+                'msg'                => 'Failed to update employee',
+            ];
+            return response()->json($output);
+        }
+
     }
 
     public function destroy($id)
     {
-        Employee::findOrFail($id)->delete();
-        return redirect()->route('admin.employees.index')->with('success', 'Employee deleted successfully.');
+        try
+        {
+            DB::beginTransaction();
+
+            $employee = Employee::findOrFail($id);
+            $employee->delete();
+
+            DB::commit();
+            // Log activity
+            activity()
+                ->causedBy(auth()->user())
+                ->event('deleted')
+                ->performedOn($employee)
+                ->useLog('Employee')
+                ->log('deleted an employee');
+
+            $output = ['success' => true,
+                'msg'                => 'Employee deleted successfully',
+            ];
+
+            return response()->json($output);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $output = ['success' => false,
+                'msg'                => 'Failed to delete employee',
+            ];
+            return response()->json($output);
+        }
     }
 
 }

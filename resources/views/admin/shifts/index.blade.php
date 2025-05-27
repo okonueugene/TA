@@ -16,7 +16,8 @@
                                             class="icon ni ni-more-v"></em></a>
                                     <div class="toggle-expand-content" data-content="more-options">
                                         <ul class="nk-block-tools g-3">
-                                            <li><a href="#" class="btn btn-white btn-outline-light"><em
+                                            <li><a href="javascript:void(0)"
+                                                class="btn btn-white btn-outline-light"><em
                                                         class="icon ni ni-download-cloud"></em><span>Export</span></a>
                                             </li>
                                         </ul>
@@ -98,43 +99,12 @@
                     name: 'action'
                 },
             ];
+            var filters = {
 
-            $('#page_table').DataTable({
-                processing: true,
-                serverSide: true,
-                ajax: url,
-                columns: columns,
-                dom: 'Bfrtip',
-                lengthMenu: [
-                    [10, 25, 50, -1],
-                    ['10 rows', '25 rows', '50 rows', 'Show all']
-                ],
-                buttons: [{
-                        extend: 'pageLength',
-                        className: 'btn btn-default btn-sm'
-                    },
-                    {
-                        extend: 'copy',
-                        className: 'btn btn-default btn-sm'
-                    },
-                    {
-                        extend: 'csv',
-                        className: 'btn btn-default btn-sm'
-                    },
-                    {
-                        extend: 'excel',
-                        className: 'btn btn-default btn-sm'
-                    },
-                    {
-                        extend: 'pdf',
-                        className: 'btn btn-default btn-sm'
-                    },
-                    {
-                        extend: 'print',
-                        className: 'btn btn-default btn-sm'
-                    },
-                ],
-            });
+            };
+
+            // Initialize DataTable
+            var page_table = __initializePageTable(url, columns, filters);
 
         });
     </script>

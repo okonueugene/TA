@@ -1,16 +1,15 @@
 <?php
 namespace App\Http\Controllers\Admin;
 
-
-use Carbon\Carbon;
-use App\Models\Holiday;
-use App\Models\Employee;
-use App\Models\Attendance;
-use App\Helpers\DateHelper;
-use Illuminate\Http\Request;
 use App\Exports\AttendanceExport;
-use Illuminate\Support\Facades\DB;
+use App\Helpers\DateHelper;
 use App\Http\Controllers\Controller;
+use App\Models\Attendance;
+use App\Models\Employee;
+use App\Models\Holiday;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 use Yajra\DataTables\Facades\DataTables;
 
@@ -35,9 +34,8 @@ class AttendanceController extends Controller
 
         // If it's an AJAX request from DataTables, return the JSON data
         if ($request->ajax()) {
-                                        // Use Query Builder for efficient aggregation
-                                        // We need to select employee details and aggregate shift data
-            $query = Employee::select([ // Changed $data to $query for consistency with adding filters later
+            // Use Query Builder for efficient aggregation
+            $query = Employee::select([
                 'employees.pin',
                 'employees.empname',
                 'employees.empoccupation',
@@ -47,18 +45,17 @@ class AttendanceController extends Controller
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type = 'day' THEN 1 ELSE NULL END) as day_shifts"),
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type IN ('standard_night', 'specific_pattern_night') THEN 1 ELSE NULL END) as night_shifts"),
 
-                // NEW: Count missing clock-outs and clock-ins separately
+                // Count missing clock-outs and clock-ins separately
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type = 'missing_clockout' THEN 1 ELSE NULL END) as missing_clockouts"),
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type = 'missing_clockin' THEN 1 ELSE NULL END) as missing_clockins"),
 
                 // Holiday related counts
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type = 'day' AND employee_shifts.is_holiday = 1 THEN 1 ELSE NULL END) as holiday_day_shifts"),
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type IN ('standard_night', 'specific_pattern_night') AND employee_shifts.is_holiday = 1 THEN 1 ELSE NULL END) as holiday_night_shifts"),
-                DB::raw("COUNT(CASE WHEN employee_shifts.is_holiday = 1 THEN 1 ELSE NULL END) as total_holiday_shifts"), // Total shifts on a holiday, regardless of type
+                DB::raw("COUNT(CASE WHEN employee_shifts.is_holiday = 1 THEN 1 ELSE NULL END) as total_holiday_shifts"),
 
-                // NEW: Incomplete Shifts
+                // Incomplete Shifts
                 DB::raw("COUNT(CASE WHEN employee_shifts.is_complete = 0 THEN 1 ELSE NULL END) as incomplete_shifts"),
-                // NEW: Incomplete Shifts on Holidays
                 DB::raw("COUNT(CASE WHEN employee_shifts.is_complete = 0 AND employee_shifts.is_holiday = 1 THEN 1 ELSE NULL END) as incomplete_holiday_shifts"),
 
                 // Summing overtime hours only for complete shifts
@@ -69,26 +66,22 @@ class AttendanceController extends Controller
                 // Other errors, excluding missing_clockin as it's now separate
                 DB::raw("COUNT(CASE WHEN employee_shifts.shift_type IN ('inverted_times', 'lookahead_inverted', 'human_error_day', 'human_error_inverted', 'unhandled_pattern') THEN 1 ELSE NULL END) as other_errors"),
             ])
-            // Changed back to LEFT JOIN to ensure all employees are considered,
-            // even if they have no shifts or only specific types of shifts in the month.
-            // The havingRaw clause below will then filter out employees with no shift data in the range.
-                ->leftJoin('employee_shifts', function ($join) use ($startDate, $endDate) {
-                    $join->on('employees.pin', '=', 'employee_shifts.employee_pin')
-                        ->whereBetween('employee_shifts.shift_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
-                })
-            // Group the results by employee details to get aggregates per employee
-                ->groupBy(
-                    'employees.pin',
-                    'employees.empname',
-                    'employees.empoccupation',
-                    'employees.team'
-                );
+            ->leftJoin('employee_shifts', function ($join) use ($startDate, $endDate) {
+                $join->on('employees.pin', '=', 'employee_shifts.employee_pin')
+                    ->whereBetween('employee_shifts.shift_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+            })
+            ->groupBy(
+                'employees.pin',
+                'employees.empname',
+                'employees.empoccupation',
+                'employees.team'
+            );
 
             // Add HAVING clause to filter out employees with no shifts in the month
-            // This ensures only employees who have at least one joined shift are shown.
             $query->havingRaw('COUNT(employee_shifts.id) > 0');
 
-            // --- Enable Search Functionality ---
+            // --- Improved Search Functionality ---
+            // Handle global search
             if ($request->filled('search.value')) {
                 $searchValue = $request->input('search.value');
                 $query->where(function ($q) use ($searchValue) {
@@ -99,19 +92,83 @@ class AttendanceController extends Controller
                 });
             }
 
-            // Optional: Add an order by clause if you want default sorting
-            $query->orderBy('employees.empname', 'asc');
+            // Handle individual column searches
+            $columns = $request->get('columns', []);
+            if (!empty($columns)) {
+                foreach ($columns as $index => $column) {
+                    if (!empty($column['search']['value'])) {
+                        $searchValue = $column['search']['value'];
+                        
+                        switch ($column['data']) {
+                            case 'empname':
+                                $query->where('employees.empname', 'like', '%' . $searchValue . '%');
+                                break;
+                            case 'pin':
+                                $query->where('employees.pin', 'like', '%' . $searchValue . '%');
+                                break;
+                            case 'empoccupation':
+                                $query->where('employees.empoccupation', 'like', '%' . $searchValue . '%');
+                                break;
+                            case 'team':
+                                $query->where('employees.team', 'like', '%' . $searchValue . '%');
+                                break;
+                        }
+                    }
+                }
+            }
 
-            $data = $query->get(); // Execute the query and get the results
+            // Handle ordering
+            if ($request->filled('order')) {
+                $orderColumn = $request->input('order.0.column');
+                $orderDir = $request->input('order.0.dir');
+                
+                if (isset($columns[$orderColumn])) {
+                    $columnName = $columns[$orderColumn]['data'];
+                    
+                    switch ($columnName) {
+                        case 'empname':
+                            $query->orderBy('employees.empname', $orderDir);
+                            break;
+                        case 'pin':
+                            $query->orderBy('employees.pin', $orderDir);
+                            break;
+                        case 'empoccupation':
+                            $query->orderBy('employees.empoccupation', $orderDir);
+                            break;
+                        case 'team':
+                            $query->orderBy('employees.team', $orderDir);
+                            break;
+                        case 'days_present':
+                            $query->orderBy('days_present', $orderDir);
+                            break;
+                        case 'day_shifts':
+                            $query->orderBy('day_shifts', $orderDir);
+                            break;
+                        case 'night_shifts':
+                            $query->orderBy('night_shifts', $orderDir);
+                            break;
+                        case 'total_overtime_hours':
+                            $query->orderBy('total_overtime_hours', $orderDir);
+                            break;
+                        case 'total_total_hours':
+                            $query->orderBy('total_total_hours', $orderDir);
+                            break;
+                        default:
+                            $query->orderBy('employees.empname', 'asc');
+                    }
+                }
+            } else {
+                // Default ordering
+                $query->orderBy('employees.empname', 'asc');
+            }
 
-            // Now process the aggregated data with DataTables
-            return DataTables::of($data)
-            // Add the static total work days for the month
+            // Use DataTables::eloquent() instead of DataTables::of() for better integration
+            return DataTables::eloquent($query)
+                // Add the static total work days for the month
                 ->addColumn('total_work_days_in_month', function ($row) use ($totalWorkDaysInMonth) {
                     return $totalWorkDaysInMonth;
                 })
-            // The following columns are already calculated in the DB query (aliases match)
-            // We just need to define them for DataTables
+                // The following columns are already calculated in the DB query
                 ->addColumn('days_present', function ($row) {
                     return $row->days_present ?? 0;
                 })
@@ -121,11 +178,9 @@ class AttendanceController extends Controller
                 ->addColumn('night_shifts', function ($row) {
                     return $row->night_shifts ?? 0;
                 })
-            // Add the Missing Clockouts column
                 ->addColumn('missing_clockouts', function ($row) {
                     return $row->missing_clockouts ?? 0;
                 })
-            // NEW: Add the Missing Clockins column
                 ->addColumn('missing_clockins', function ($row) {
                     return $row->missing_clockins ?? 0;
                 })
@@ -135,11 +190,9 @@ class AttendanceController extends Controller
                 ->addColumn('holiday_night_shifts', function ($row) {
                     return $row->holiday_night_shifts ?? 0;
                 })
-            // Add the general total_holiday_shifts column for display
                 ->addColumn('total_holiday_shifts', function ($row) {
                     return $row->total_holiday_shifts ?? 0;
                 })
-            // NEW: Add the incomplete shifts columns for display
                 ->addColumn('incomplete_shifts', function ($row) {
                     return $row->incomplete_shifts ?? 0;
                 })
@@ -152,11 +205,10 @@ class AttendanceController extends Controller
                 ->addColumn('total_hours', function ($row) {
                     return round($row->total_total_hours ?? 0.0, 2);
                 })
-            // Optional: Add the other errors column if you included it in the select
                 ->addColumn('other_errors', function ($row) {
                     return $row->other_errors ?? 0;
                 })
-            // Edit existing columns for formatting (already present in your code)
+                // Format existing columns
                 ->editColumn('empname', function ($row) {
                     return ucwords($row->empname);
                 })
@@ -166,7 +218,7 @@ class AttendanceController extends Controller
                 ->editColumn('team', function ($row) {
                     return $row->team ?? 'N/A';
                 })
-            // Add action column (already present in your code)
+                // Add action column
                 ->addColumn('action', function ($employee) use ($currentMonth, $currentYear) {
                     $html = '
                     <div class="btn-group">
@@ -175,17 +227,20 @@ class AttendanceController extends Controller
                     return $html;
                 })
                 ->rawColumns(['action'])
+                // Configure searchable columns
+                ->filter(function ($query) use ($request) {
+                    // This method allows for additional custom filtering if needed
+                    // The main search logic is already handled above
+                })
                 ->make(true);
         }
 
         $title = "Attendance";
-        // Pass month and year to the view for potential month/year selection dropdowns/links
         return view('admin.attendance.index', compact('title', 'currentYear', 'currentMonth'));
     }
 
     public function show($pin)
     {
-
         $currentMonth = Carbon::now()->subMonth()->month;
         $currentYear  = now()->year;
 
@@ -201,7 +256,6 @@ class AttendanceController extends Controller
         $title = "Attendance - " . ucwords($employee->empname);
 
         return view('admin.attendance.show', compact('employee', 'attendances', 'title'));
-
     }
 
     /**
@@ -209,14 +263,26 @@ class AttendanceController extends Controller
      */
     public function export(Request $request)
     {
-        $currentMonth = $request->get('month', now()->month);
-        $currentYear  = $request->get('year', now()->year);
-        $searchValue  = $request->get('search_value'); // Get search value from query parameters
+        try {
+            $currentMonth = $request->get('month', now()->month);
+            $currentYear  = $request->get('year', now()->year);
+            $searchValue  = $request->get('search', null);
 
-        $filename = 'attendance_report_' . Carbon::createFromDate($currentYear, $currentMonth)->format('Y_m') . '.xlsx';
-        // For CSV, change the second parameter to 'csv'
-        // Excel::download(new AttendanceExport($currentMonth, $currentYear, $searchValue), $filename, \Maatwebsite\Excel\Excel::CSV);
+            $filename = 'attendance_report_' . Carbon::createFromDate($currentYear, $currentMonth)->format('Y_m') . '.xlsx';
 
-        return Excel::download(new AttendanceExport($currentMonth, $currentYear, $searchValue), $filename);
+            // Log activity first
+            activity()
+                ->causedBy(auth()->user())
+                ->event('export_attendance')
+                ->log('Exported attendance report');
+
+            return Excel::download(new AttendanceExport($currentMonth, $currentYear, $searchValue), $filename);
+        } catch (\Exception $e) {
+            \Log::error('Excel export error: ' . $e->getMessage());
+
+            return response()->json([
+                'error' => 'Failed to generate Excel file. Please try again.',
+            ], 500);
+        }
     }
 }

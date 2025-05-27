@@ -5,6 +5,8 @@ namespace App\Http\Livewire\Admin;
 use App\Models\Site;
 use Livewire\Component;
 use App\Models\SiteSettings;
+use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
 
@@ -81,7 +83,8 @@ class Sites extends Component
     {
         $title = "Site Settings";
         $settings = SiteSettings::first();
-        return view('livewire.admin.site', compact('title', 'settings'))->extends('layouts.admin', ['title' => $title])->section('content');
+        $user = User::where('id', Auth::user()->id)->first();
+        return view('livewire.admin.site', compact('title', 'settings','user'))->extends('layouts.admin', ['title' => $title])->section('content');
 
 
     }

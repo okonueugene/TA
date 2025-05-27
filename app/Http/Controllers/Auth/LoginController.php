@@ -33,14 +33,11 @@ class LoginController extends Controller
     public function redirectTo()
     {
         $role = Auth()->user()->user_type;
-        if ($role == 'admin') {
+        if ($role == 'admin' || $role == 'manager') {
+            
+        
             return 'admin/dashboard';
-        } elseif ($role == 'manager') {
-            return 'manager/dashboard';
-        } elseif ($role == 'general_manager') {
-            return 'general/dashboard';
-        } elseif ($role == 'employee') {
-            return 'employee/dashboard';
+        
         } else {
             return back();
         }

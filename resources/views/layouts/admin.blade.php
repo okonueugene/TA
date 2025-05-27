@@ -185,16 +185,16 @@
                         </div>
                     </div>
                 </div>
-                <!-- footer @e -->
-                <div class="modal fade" id="common_modal" tabindex="-1" aria-labelledby="commonModalExample"
-                    aria-hidden="true">
-
-                </div>
             </div>
             <!-- wrap @e -->
         </div>
         <!-- main @e -->
     </div>
+    <div class="modal fade" id="common_modal" tabindex="-1" aria-labelledby="commonModalExample"
+        aria-hidden="true">
+
+    </div>
+    @yield('modals')
     <!-- app-root @e -->
     <!-- JavaScript -->
     <script src="{{ asset('theme/assets/js/bundle.js?ver=2.9.0') }}"></script>
@@ -205,14 +205,190 @@
     <script src="{{ asset('theme/assets/js/datatables/datatables.min.js') }}"></script>
     <script src="{{ asset('theme/assets/js/fullcalendar/index.global.min.js') }}"></script>
     <script>
+        $.ajaxSetup({
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            }
+        });
         $(document).on('click', '.modal-button', function() {
             var actionuRL = $(this).data('href');
             $('#common_modal').load(actionuRL, function() {
                 $(this).modal('show');
             });
         });
-    </script>
 
+        
+        $(document).on('click', '.delete-record', function() {
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "You won't be able to revert this!",
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Yes!'
+            }).then((willDelete) => {
+                if (willDelete.isConfirmed) {
+                    var href = $(this).data('href');
+
+                    var data = $(this).serialize();
+
+                    $.ajax({
+
+                        method: 'DELETE',
+
+                        url: href,
+
+                        dataType: 'json',
+
+                        data: data,
+
+                        success: function(result) {
+
+                            if (result.success == true) {
+
+                                iziToast.success({
+                                    title: "Success",
+                                    message: result.msg,
+                                    position: "topRight",
+                                    timeout: 10000,
+                                    transitionIn: "fadeInDown"
+                                });
+
+                                window.location.reload();
+
+                            } else {
+
+                                iziToast.error({
+                                    title: "Error",
+                                    message: result.msg,
+                                    position: "topRight",
+                                    timeout: 10000,
+                                    transitionIn: "fadeInDown"
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        $(document).on('submit', ".form", function(e) {
+        e.preventDefault();
+
+        var form = $(this);
+        var url = form.attr('action');
+        var method = form.attr('method');
+        var submitButton = form.find('.submit-btn');
+
+        // Replace the text of the submit button with loader
+        submitButton.html('<i class="fa fa-spinner fa-spin"></i> Please wait...');
+        // Disable submit button
+        submitButton.prop('disabled', true);
+
+        // Create a FormData object
+        var formData = new FormData(form[0]);
+
+        $.ajax({
+            url: url,
+            type: method,
+            data: formData,
+            processData: false, // Required for FormData
+            contentType: false, // Required for FormData
+            success: function(result) {
+                if (result.success == true) {
+                    iziToast.success({
+                        title: "Success",
+                        message: result.msg ? result.msg : result.success,
+                        position: "topRight",
+                        timeout: 10000,
+                        transitionIn: "fadeInDown"
+                    });
+
+                    // Close the modal and reload the table
+                    $('.modal').modal('hide');
+                    $('#page_table').DataTable().ajax.reload();
+
+
+                } else {
+                    let errorMessage = "";
+
+                    // If result.errors exists, loop through and display specific errors
+                    if (result.errors) {
+                        $.each(result.errors, function(key, value) {
+                            errorMessage += value[0] +
+                                "<br>"; // Appending errors as HTML line breaks
+                        });
+                    } else {
+                        errorMessage = result.msg ? result.msg : "An unknown error occurred.";
+                    }
+
+                    iziToast.error({
+                        title: "Error",
+                        message: errorMessage,
+                        position: "topRight",
+                        timeout: 10000,
+                        transitionIn: "fadeInDown"
+                    });
+                }
+
+                $('.modal').modal('hide');
+                submitButton.prop('disabled', false);
+            },
+            error: function(xhr, status, error) {
+                // Handle error response
+                if (xhr.status === 422) { // Validation error from Laravel
+                    var errors = xhr.responseJSON.errors;
+                    var errorMessage = "";
+
+                    // Loop through and display validation errors
+                    $.each(errors, function(key, value) {
+                        errorMessage += value[0] +
+                            "<br>"; // Appending errors as HTML line breaks
+                    });
+
+                    iziToast.error({
+                        title: "Validation Error",
+                        message: errorMessage,
+                        position: "topRight",
+                        timeout: 10000,
+                        transitionIn: "fadeInDown"
+                    });
+                } else { // General error
+                    var errorMessage = xhr.responseJSON.message ||
+                        "Something Went Wrong!, Try again!";
+
+                    iziToast.error({
+                        title: "Error",
+                        message: errorMessage,
+                        position: "topRight",
+                        timeout: 10000,
+                        transitionIn: "fadeInDown"
+                    });
+                }
+            }
+        });
+
+    });
+    </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/izitoast/1.4.0/js/iziToast.min.js"></script>
+<script>
+     function __initializePageTable(url, columns, filters = null) {
+        _page_table = $('#page_table').DataTable({
+            processing: true,
+            serverSide: true,
+            ajax: {
+                url: url,
+                data: function(d) {
+                    d.filters = filters;
+                }
+            },
+            columns: columns,
+            createdRow: function(row, data, dataIndex) {}
+        });
+
+        return _page_table;
+
+    }
+</script>
 
     <!-- Livewire Scripts -->
     @livewireScripts
