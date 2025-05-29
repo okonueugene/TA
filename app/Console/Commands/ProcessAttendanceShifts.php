@@ -213,46 +213,71 @@ class ProcessAttendanceShifts extends Command
 
                 // Rule 1: Complete and valid standard pair
                 // This rule now applies to the FILTERED records
+                // Inside the 'handle' method, locate Rule 1:
+// Rule1: Complete and valid standard pair
                 if ($firstInRecordStandard && $lastOutRecordStandard && $clockOutTime->greaterThan($clockInTime)) {
                     $hoursWorked = $clockOutTime->floatDiffInHours($clockInTime);
                     $isComplete  = true;
 
-                    // Determine shift type based on the clock-in time of the *current* shift
-                    $dayShiftStartTarget   = $shiftDayDate->copy()->setTime(self::DAY_SHIFT_STANDARD_START_HOUR, self::DAY_SHIFT_STANDARD_START_MINUTE);
-                    $nightShiftStartTarget = $shiftDayDate->copy()->setTime(self::NIGHT_SHIFT_STANDARD_START_HOUR, self::NIGHT_SHIFT_STANDARD_START_MINUTE);
+                                                                                                                                                               // Define the relevant time points for classification
+                                                                                                                                                               // These are boundaries for the *calculated shift day* (shiftDayDate)
+                    $dayShiftStandardStart   = $shiftDayDate->copy()->setTime(self::DAY_SHIFT_STANDARD_START_HOUR, self::DAY_SHIFT_STANDARD_START_MINUTE);     // 07:00
+                    $dayShiftStandardEnd     = $shiftDayDate->copy()->setTime(self::DAY_SHIFT_STANDARD_END_HOUR, self::DAY_SHIFT_STANDARD_END_MINUTE);         // 18:00
+                    $nightShiftStandardStart = $shiftDayDate->copy()->setTime(self::NIGHT_SHIFT_STANDARD_START_HOUR, self::NIGHT_SHIFT_STANDARD_START_MINUTE); // 18:00
 
-                    if ($clockInTime->greaterThanOrEqualTo($dayShiftStartTarget) && $clockInTime->lessThan($nightShiftStartTarget)) {
+                                                                                                                                                                    // The start of the next calendar day's regular hours (important for night shift end)
+                    $nextCalendarDaySevenAM = $shiftDayDate->copy()->addDay()->setTime(self::NIGHT_SHIFT_STANDARD_END_HOUR, self::NIGHT_SHIFT_STANDARD_END_MINUTE); // 07:00 next day
+
+                    // --- Determine Shift Type based on overall shift span and key breakpoints ---
+
+                    // Scenario 1: Clear Day Shift
+                    // Clock-in is at or after 07:00 AND clock-out is before or at 18:00 (on the same calculated shift day's calendar date)
+                    // OR Clock-in is before 07:00 but clock-out is clearly within the day (e.g., before 19:00 on same day)
+                    // This handles cases like 07:00-17:00 AND 06:30-17:00.
+                    if (
+                        ($clockInTime->greaterThanOrEqualTo($dayShiftStandardStart) && $clockOutTime->lessThanOrEqualTo($dayShiftStandardEnd)) ||
+                        ($clockInTime->lessThan($dayShiftStandardStart) && $clockOutTime->isSameDay($clockInTime) && $clockOutTime->lessThan($nightShiftStandardStart->addHours(1))) // Clock-in before 7am, clock-out before 7pm same day
+                    ) {
                         $shiftType       = 'day';
-                        $latenessMinutes = $this->calculateLateness($clockInTime, 'day');
-                    } elseif ($clockInTime->greaterThanOrEqualTo($nightShiftStartTarget) || $clockInTime->lessThan($dayShiftStartTarget)) {
-                        // This condition covers night shifts that start on the calculated shift day (e.g., 18:00)
-                        // OR night shifts that start on the previous calendar day but whose calculated shift day is current (e.g., clocked in 02:00, shift day is previous)
-                        // The 'getShiftDay' method correctly assigns the 'shiftDayDate' based on the 4AM cutoff.
-                        // For a clock-in like 02:00 on May 2nd (calculated shift day May 1st), it should still be a 'night' shift type.
-                        $shiftType       = 'night';
+                        $latenessMinutes = $this->calculateLateness($clockInTime, 'day'); // Lateness still compared to 07:00
+                    }
+                    // Scenario 2: Clear Night Shift
+                    // Clock-in is at or after 18:00 (implies night shift starting this evening)
+                    // OR Clock-out extends into the next calendar day past 07:00 (implies overnight shift)
+                    // OR Clock-in is before 07:00 and clock-out is after 18:00 (implies an early start, long shift spanning day and evening)
+                    elseif (
+                        $clockInTime->greaterThanOrEqualTo($nightShiftStandardStart) ||                                                // Starts 18:00 or later
+                        $clockOutTime->greaterThanOrEqualTo($nextCalendarDaySevenAM) ||                                                // Ends 07:00 next day or later (overnight)
+                        ($clockInTime->hour < self::DAY_SHIFT_STANDARD_START_HOUR && $clockOutTime->greaterThan($dayShiftStandardEnd)) // Starts before 7am, ends after 6pm same day
+                    ) {
+                        $shiftType = 'night';
+                        // For lateness, if clock-in is before 07:00, it's relative to previous 18:00,
+                        // if clock-in is after 18:00, it's relative to 18:00 of the current shift day.
                         $latenessMinutes = $this->calculateLateness($clockInTime, 'night');
-                    } else {
-                        // Fallback for times outside standard day/night start, potentially invalid clock-in pattern
-                        $shiftType = 'unknown_fixed_type';
+                    }
+                    // Scenario 3: Remaining / Ambiguous / Edge Cases
+                    // This could catch shifts that don't fit neatly into the above, or shorter shifts
+                    // that might cross the 4AM cutoff in unusual ways not handled by the specific night shift exclusion.
+                    else {
+                                                    // As a last resort, infer type based on which standard start time is closer to clock-in.
+                                                    // Or consider marking as 'unknown_fixed_type' and manually review.
+                        $inferredShiftType = 'day'; // Default
+                        if (abs($clockInTime->diffInMinutes($dayShiftStandardStart)) > abs($clockInTime->diffInMinutes($nightShiftStandardStart))) {
+                            $inferredShiftType = 'night';
+                        }
+                        $shiftType       = 'inferred_' . $inferredShiftType; // Explicitly mark as inferred
+                        $latenessMinutes = $this->calculateLateness($clockInTime, $inferredShiftType);
+                        $notes           = "Shift type inferred due to complex time pattern or edge case. Original: {$shiftType}. Notes: {$notes}"; // Add note for debugging
                     }
 
                     // Calculate both overtime types
-                    [$overtime1_5x, $overtime2_0x] = $this->calculateOvertime(
-                        $hoursWorked, $clockInTime, $clockOutTime, $shiftDayDate, $shiftType
-                    );
+                    [$overtime1_5x, $overtime2_0x] = $this->calculateOvertime($hoursWorked, $clockInTime, $clockOutTime, $shiftDayDate, $shiftType);
 
-                    $notes = $this->generateNotes(
-                        $clockInTime, $clockOutTime, $shiftType, $hoursWorked,
-                        $clockInAttendanceId, $clockOutAttendanceId,
-                        $latenessMinutes, $overtime1_5x, $overtime2_0x, $isHolidayShift, $isWeekendShift
-                    );
+                    $notes = $this->generateNotes($clockInTime, $clockOutTime, $shiftType, $hoursWorked, $clockInAttendanceId, $clockOutAttendanceId, $latenessMinutes, $overtime1_5x, $overtime2_0x, $isHolidayShift, $isWeekendShift);
 
-                    $this->info("Processed complete shift for {$employeePin} on {$shiftDayDate->toDateString()}. Type:{$shiftType}, Hours:" . round($hoursWorked, 2) . ", Lateness:{$latenessMinutes}min, OT(1.5x):" . round($overtime1_5x, 1) . ", OT(2.0x):" . round($overtime2_0x, 1) . ", Holiday:" . ($isHolidayShift ? 'Yes' : 'No') . ", Weekend:" . ($isWeekendShift ? 'Yes' : 'No') . ". Notes:{$notes}");
-                    $this->createShiftRecord(
-                        $employeePin, $shiftDayDate, $clockInAttendanceId, $clockOutAttendanceId,
-                        $clockInTime, $clockOutTime, $hoursWorked, $shiftType, $isComplete, $notes,
-                        $latenessMinutes, $overtime1_5x, $overtime2_0x, $isHolidayShift, $isWeekendShift
-                    );
+                    $this->info("Processed complete shift for {$employeePin} on {$shiftDayDate->toDateString()}. Type: {$shiftType}, Hours: " . round($hoursWorked, 2) . ", Lateness: {$latenessMinutes}min, OT(1.5x): " . round($overtime1_5x, 1) . ", OT(2.0x): " . round($overtime2_0x, 1) . ", Holiday: " . ($isHolidayShift ? 'Yes' : 'No') . ", Weekend: " . ($isWeekendShift ? 'Yes' : 'No') . ". Notes: {$notes}");
+
+                    $this->createShiftRecord($employeePin, $shiftDayDate, $clockInAttendanceId, $clockOutAttendanceId, $clockInTime, $clockOutTime, $hoursWorked, $shiftType, $isComplete, $notes, $latenessMinutes, $overtime1_5x, $overtime2_0x, $isHolidayShift, $isWeekendShift);
                     $shiftsProcessed++;
                 }
                 // Rule 2: Human Error on Same Calendar Date
