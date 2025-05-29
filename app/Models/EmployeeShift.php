@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,20 +18,25 @@ class EmployeeShift extends Model
         'hours_worked',
         'shift_type',
         'is_complete',
-        'overtime_hours',
-        'is_holiday',
-        'notes'
+        'notes',              // Add this - it was missing
+        'lateness_minutes',   
+        'overtime_hours_1_5x',
+        'overtime_hours_2_0x',
+        'is_holiday',         
+        'is_weekend',
     ];
 
     protected $casts = [
-        'shift_date' => 'date',
-        'clock_in_time' => 'datetime',
-        'clock_out_time' => 'datetime',
-        'is_complete' => 'boolean',
-        'hours_worked' => 'float',
-        'overtime_hours' => 'float',
-        'is_holiday' => 'boolean'
-        
+        'shift_date'         => 'date',
+        'clock_in_time'      => 'datetime',
+        'clock_out_time'     => 'datetime',
+        'is_complete'        => 'boolean',
+        'hours_worked'       => 'float',
+        'lateness_minutes'   => 'integer',      // Add this
+        'overtime_hours_1_5x'=> 'float',        // Add this
+        'overtime_hours_2_0x'=> 'float',        // Add this
+        'is_holiday'         => 'boolean',
+        'is_weekend'         => 'boolean',      // Add this
     ];
 
     public function employee()

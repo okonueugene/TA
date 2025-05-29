@@ -204,6 +204,26 @@
     <script src="{{ asset('theme/assets/js/jquery-3.7.1.min.js') }}"></script>
     <script src="{{ asset('theme/assets/js/datatables/datatables.min.js') }}"></script>
     <script src="{{ asset('theme/assets/js/fullcalendar/index.global.min.js') }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/izitoast/1.4.0/js/iziToast.min.js"></script>
+<script>
+     function __initializePageTable(url, columns, filters = null) {
+        _page_table = $('#page_table').DataTable({
+            processing: true,
+            serverSide: true,
+            ajax: {
+                url: url,
+                data: function(d) {
+                    d.filters = filters;
+                }
+            },
+            columns: columns,
+            createdRow: function(row, data, dataIndex) {}
+        });
+
+        return _page_table;
+
+    }
+</script>
     <script>
         $.ajaxSetup({
             headers: {
@@ -254,7 +274,7 @@
                                     transitionIn: "fadeInDown"
                                 });
 
-                                window.location.reload();
+                    $('#page_table').DataTable().ajax.reload();
 
                             } else {
 
@@ -369,26 +389,7 @@
 
     });
     </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/izitoast/1.4.0/js/iziToast.min.js"></script>
-<script>
-     function __initializePageTable(url, columns, filters = null) {
-        _page_table = $('#page_table').DataTable({
-            processing: true,
-            serverSide: true,
-            ajax: {
-                url: url,
-                data: function(d) {
-                    d.filters = filters;
-                }
-            },
-            columns: columns,
-            createdRow: function(row, data, dataIndex) {}
-        });
 
-        return _page_table;
-
-    }
-</script>
 
     <!-- Livewire Scripts -->
     @livewireScripts

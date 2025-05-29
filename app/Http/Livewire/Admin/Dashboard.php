@@ -60,7 +60,7 @@ class Dashboard extends Component
 
         $daysWorked   = DateHelper::getBusinessDays(today());
 
-        $deviceStatus = app('tad')->get_free_sizes()->to_array()['Row'] ?? [];
+        $deviceStatus =  [];
 
 
         return view('livewire.admin.dashboard', compact('employees', 'clockins', 'clockouts', 'weekDays', 'weeklyAttendance', 'businessDays', 'presentEmployees', 'daysWorked', 'presentEmployeesMonth', 'deviceStatus'))

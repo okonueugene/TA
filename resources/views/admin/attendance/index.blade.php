@@ -75,8 +75,8 @@
                                         <th class="nk-tb-col tb-col-md"><span>Missing Clockins</span></th>
                                         <th class="nk-tb-col tb-col-md"><span>Holiday Day Shifts</span></th>
                                         <th class="nk-tb-col tb-col-md"><span>Holiday Night Shifts</span></th>
-                                        <th class="nk-tb-col tb-col-md"><span>Overtime Hours</span></th>
-                                        <th class="nk-tb-col tb-col-md"><span>Total Hours</span></th>
+                                        <th class="nk-tb-col tb-col-md"><span>Overtime 1.5x</span></th>
+                                        <th class="nk-tb-col tb-col-md"><span>Overtime 2x</span></th>
                                         <th class="nk-tb-col nk-tb-col-tools text-end">
                                             <span class="sub-text">Actions</span>
                                         </th>
@@ -162,182 +162,163 @@
 
 @push('scripts')
     <script>
-        $(document).ready(function() {
+$(document).ready(function() {
+    // Function to get current month and year from dropdowns or URL
+    function getSelectedMonthYear() {
+        const month = $('#monthSelect').val() || new URLSearchParams(window.location.search).get('month') || {{ $currentMonth }};
+        const year = $('#yearSelect').val() || new URLSearchParams(window.location.search).get('year') || {{ $currentYear }};
+        return { month, year };
+    }
 
-            // Function to get current month and year from dropdowns or URL
-            function getSelectedMonthYear() {
-                const month = $('#monthSelect').val() || new URLSearchParams(window.location.search).get('month') ||
-                    {{ $currentMonth }};
-                const year = $('#yearSelect').val() || new URLSearchParams(window.location.search).get('year') ||
-                    {{ $currentYear }};
-                return {
-                    month,
-                    year
-                };
+    // Function to build the AJAX URL with month and year parameters
+    function buildAjaxUrl() {
+        const { month, year } = getSelectedMonthYear();
+        let url = "{{ url('admin/attendance') }}";
+        const params = new URLSearchParams();
+        params.append('month', month);
+        params.append('year', year);
+        return url + '?' + params.toString();
+    }
+
+    var url = buildAjaxUrl();
+
+    var columns = [
+        // Checkbox column
+        {
+            data: 'pin',
+            name: 'employees.pin',
+            orderable: false,
+            searchable: true,
+            render: function(data, type, row) {
+                return '<div class="custom-control custom-control-sm custom-checkbox notext">' +
+                    '<input type="checkbox" class="custom-control-input uid" id="uid-' + data +
+                    '" value="' + data + '">' +
+                    '<label class="custom-control-label" for="uid-' + data + '"></label>' +
+                    '</div>';
             }
-
-            // Function to build the AJAX URL with month and year parameters
-            function buildAjaxUrl() {
-                const {
-                    month,
-                    year
-                } = getSelectedMonthYear();
-                let url = "{{ url('admin/attendance') }}";
-                const params = new URLSearchParams();
-                params.append('month', month);
-                params.append('year', year);
-                return url + '?' + params.toString();
+        },
+        // Employee Information Columns
+        { data: 'empname', name: 'employees.empname' },
+        // Summary Columns - Updated to match new field names
+        { data: 'days_present', name: 'days_present' },
+        { data: 'day_shifts', name: 'day_shifts' },
+        { data: 'night_shifts', name: 'night_shifts' },
+        { data: 'missing_clockouts', name: 'missing_clockouts' },
+        { data: 'missing_clockins', name: 'missing_clockins' },
+        { data: 'holiday_day_shifts', name: 'holiday_day_shifts' },
+        { data: 'holiday_night_shifts', name: 'holiday_night_shifts' },
+        // Updated overtime columns to match new field names
+        {
+            data: 'overtime_1_5x',
+            name: 'overtime_1_5x',
+            render: function(data) {
+                return parseFloat(data || 0).toFixed(2);
             }
-
-            var url = buildAjaxUrl();
-
-            var columns = [
-                // Checkbox column
-                {
-                    data: 'pin',
-                    name: 'employees.pin',
-                    orderable: false,
-                    searchable: true,
-                    render: function(data, type, row) {
-                        return '<div class="custom-control custom-control-sm custom-checkbox notext">' +
-                            '<input type="checkbox" class="custom-control-input uid" id="uid-' + data +
-                            '" value="' + data + '">' +
-                            '<label class="custom-control-label" for="uid-' + data + '"></label>' +
-                            '</div>';
-                    }
-                },
-                // Employee Information Columns
-                {
-                    data: 'empname',
-                    name: 'employees.empname'
-                },
-
-                // Summary Columns - Ensure names match the aliases from the aggregated query
-                {
-                    data: 'days_present',
-                    name: 'days_present'
-                },
-                {
-                    data: 'day_shifts',
-                    name: 'day_shifts'
-                },
-                {
-                    data: 'night_shifts',
-                    name: 'night_shifts'
-                },
-
-                // NEW COLUMNS FOR INCOMPLETE SHIFTS AND HOLIDAYS
-                {
-                    data: 'missing_clockouts',
-                    name: 'missing_clockouts'
-                },
-                {
-                    data: 'missing_clockins',
-                    name: 'missing_clockins'
-                },
-                {
-                    data: 'holiday_day_shifts',
-                    name: 'holiday_day_shifts'
-                },
-                {
-                    data: 'holiday_night_shifts',
-                    name: 'holiday_night_shifts'
-                },
-                {
-                    data: 'total_overtime_hours',
-                    name: 'total_overtime_hours',
-                    render: function(data) {
-                        return parseFloat(data).toFixed(2);
-                    }
-                },
-                {
-                    data: 'total_total_hours',
-                    name: 'total_total_hours',
-                    render: function(data) {
-                        return parseFloat(data).toFixed(2);
-                    }
-                },
-
-                // Actions Column
-                {
-                    data: 'action',
-                    name: 'action',
-                    orderable: false,
-                    searchable: false
-                },
-            ];
-
-            var filters = {
-                month: $('#monthSelect').val() || new URLSearchParams(window.location.search).get('month') ||
-                    {{ $currentMonth }},
-                year: $('#yearSelect').val() || new URLSearchParams(window.location.search).get('year') ||
-                    {{ $currentYear }}
-            };
-
-            // Initialize DataTable
-            var page_table = __initializePageTable(url, columns, filters);
-
-        });
-
-        // Handle month/year selection change
-        $('#applyMonthYear').on('click', function() {
-            attendanceTable.ajax.url(buildAjaxUrl()).load();
-        });
-
-        // Optional: Add event listener for the master checkbox if you want multi-select functionality
-        $('#uid').on('click', function() {
-            $('.uid').prop('checked', $(this).prop('checked'));
-        });
-
-        // Handle the Export button click
-        $('#exportBtn').on('click', function(e) {
-            e.preventDefault();
-
-            // Show spinner
-            $('#loadingSpinner').show();
-
-            // Get selected month and year
-            const {
-                month,
-                year
-            } = getSelectedMonthYear();
-
-            // Get current search value from DataTable
-            const searchValue = attendanceTable.search();
-
-            // Build the export URL with search parameter
-            let exportUrl = `{{ url('admin/attendances/export') }}?month=${month}&year=${year}`;
-            if (searchValue && searchValue.trim() !== '') {
-                exportUrl += `&search=${encodeURIComponent(searchValue)}`;
+        },
+        {
+            data: 'overtime_2_0x',
+            name: 'overtime_2_0x',
+            render: function(data) {
+                return parseFloat(data || 0).toFixed(2);
             }
+        },
+        // Actions Column
+        {
+            data: 'action',
+            name: 'action',
+            orderable: false,
+            searchable: false
+        },
+    ];
 
-            // Use fetch to send a GET request to the export route
-            fetch(exportUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.blob();
-                })
-                .then(blob => {
-                    // Create a temporary link to trigger the download
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `attendance_report_${year}_${month}.xlsx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url); // Clean up
-                    // Hide spinner
-                    $('#loadingSpinner').hide();
-                })
-                .catch(error => {
-                    console.error('Error exporting data:', error);
-                    alert('Failed to export data. Please try again.');
-                    // Hide spinner
-                    $('#loadingSpinner').hide();
+    var filters = {
+        month: $('#monthSelect').val() || new URLSearchParams(window.location.search).get('month') || {{ $currentMonth }},
+        year: $('#yearSelect').val() || new URLSearchParams(window.location.search).get('year') || {{ $currentYear }}
+    };
+
+    // Initialize DataTable - Make sure to store reference properly
+    var attendanceTable = __initializePageTable(url, columns, filters);
+
+    // Handle month/year selection change
+    $('#applyMonthYear').on('click', function() {
+        // Update the URL and reload the table
+        var newUrl = buildAjaxUrl();
+        attendanceTable.ajax.url(newUrl).load();
+    });
+
+    // Optional: Add event listener for the master checkbox
+    $('#uid').on('click', function() {
+        $('.uid').prop('checked', $(this).prop('checked'));
+    });
+
+    // Handle the Export button click - Fixed to use proper function scope
+    $('#exportBtn').on('click', function(e) {
+        e.preventDefault();
+
+        // Show spinner
+        $('#loadingSpinner').show();
+
+        // Get selected month and year
+        const { month, year } = getSelectedMonthYear();
+
+        // Get current search value from DataTable
+        const searchValue = attendanceTable ? attendanceTable.search() : '';
+
+        // Build the export URL with search parameter
+        let exportUrl = `{{ url('admin/attendances/export') }}?month=${month}&year=${year}`;
+        if (searchValue && searchValue.trim() !== '') {
+            exportUrl += `&search=${encodeURIComponent(searchValue)}`;
+        }
+
+        console.log('Export URL:', exportUrl); // Debug log
+
+        // Use fetch to send a GET request to the export route
+        fetch(exportUrl, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${text}`);
                 });
+            }
+            
+            // Check if response is actually a file
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+                return response.text().then(text => {
+                    throw new Error(`Expected Excel file but got: ${contentType}. Response: ${text}`);
+                });
+            }
+            
+            return response.blob();
+        })
+        .then(blob => {
+            // Create a temporary link to trigger the download
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `attendance_report_${year}_${String(month).padStart(2, '0')}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url); // Clean up
+            
+            console.log('Download initiated successfully');
+        })
+        .catch(error => {
+            console.error('Error exporting data:', error);
+            alert('Failed to export data: ' + error.message);
+        })
+        .finally(() => {
+            // Hide spinner
+            $('#loadingSpinner').hide();
         });
+    });
+});
     </script>
 @endpush

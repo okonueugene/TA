@@ -153,7 +153,7 @@ class UserController extends Controller
             return redirect()->route('admin.users.index')->with('success', 'User created successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->route('users.index')->with('error', 'Failed to create user.');
+            return redirect()->route('admin.users.index')->with('error', 'Failed to create user.');
         }
     }
 
@@ -222,10 +222,10 @@ class UserController extends Controller
                 ->useLog('User')
                 ->log('updated a user');
 
-            return redirect()->route('users.index')->with('success', 'User updated successfully.');
+            return redirect()->route('admin.users.index')->with('success', 'User updated successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->route('users.index')->with('error', 'Failed to update user.');
+            return redirect()->route('admin.users.index')->with('error', 'Failed to update user.');
         }
 
     }

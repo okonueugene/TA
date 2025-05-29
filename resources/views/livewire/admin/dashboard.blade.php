@@ -56,7 +56,7 @@
                                 <div class="card-inner">
                                     <div class="project">
                                         <div class="card-header border-bottom text-center">
-                                            <h6 class="title">Total Salary This Month</h6>
+                                            <h6 class="title">Total Days This Month</h6>
                                         </div><br>
                                         <div class="project-details text-center" style="text-size:15px;">
                                             <span>{{ $businessDays }}</span>
