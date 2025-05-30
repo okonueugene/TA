@@ -26,14 +26,14 @@ class Kernel extends ConsoleKernel
     {
         // Fetch attendance records every minute
         $schedule->command('update:attendance-records')
-            ->everyMinute()
+            ->hourly()
             ->withoutOverlapping()
             ->timezone('Africa/Nairobi');
 
         // Process attendance shifts - runs daily at 5:30 AM
         // This processes the previous day's shifts after all punches are likely complete
         $schedule->command('process:shifts')
-            ->dailyAt('09:30')
+            ->hourly()
             ->withoutOverlapping()
             ->timezone('Africa/Nairobi')
             ->appendOutputTo(storage_path('logs/shift-processing.log'));
