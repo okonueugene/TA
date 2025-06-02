@@ -4,7 +4,7 @@
 <head>
     <base href="../">
     <meta charset="utf-8">
-    <meta name="author" content="LS">
+    <meta name="author" content="Time & Attendance Management System">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta name="description" content="Workforce Management Platform">
@@ -13,7 +13,7 @@
     <!-- CSRF LARAVEL -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <!-- Page Title  -->
-    <title>{{ $title }} | LS </title>
+    <title>{{ $title }} | {{ env('APP_NAME') }}</title>
     <!-- StyleSheets  -->
     <link rel="stylesheet" href="{{ asset('theme/assets/css/izitoast/iziToast.min.css') }}">
     <link rel="stylesheet" href="{{ asset('theme/assets/css/dashlite.css?ver=2.9.0') }}">
