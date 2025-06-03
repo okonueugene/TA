@@ -335,23 +335,53 @@ class ProcessAttendanceShifts extends Command
         // Filter clock-ins to only those on the actual shift's clock-in day
         $relevantClockIns = $clockInsForDay->filter(fn($r) => $r->datetime->isSameDay($shiftActualIn));
         if ($relevantClockIns->count() > 1) {
-            $times = $relevantClockIns->pluck('datetime')->sort();
-            for ($i = 1; $i < $times->count(); $i++) {
-                if ($times->get($i)->diffInHours($times->get($i - 1)) > 1) {
+            $timesIns = $relevantClockIns->pluck('datetime')->sort(); // $timesIns should be a collection of Carbon objects
+            for ($i = 1; $i < $timesIns->count(); $i++) {
+                $currentTime  = $timesIns->get($i);
+                $previousTime = $timesIns->get($i - 1);
+
+                if (! $currentTime instanceof \Carbon\Carbon) {
+                    \Log::error('detectHumanError (INS): currentTime is not Carbon!', ['type' => gettype($currentTime), 'value' => $currentTime]);
+                    continue;
+                }
+                if (! $previousTime instanceof \Carbon\Carbon) {
+                    \Log::error('detectHumanError (INS): previousTime is not Carbon!', ['type' => gettype($previousTime), 'value' => $previousTime]);
+                    continue;
+                }
+
+                if ($currentTime->diffInHours($previousTime) > 1) {
                     return true;
                 }
 
             }
         }
+
         // Filter clock-outs to only those on the actual shift's clock-out day
         $relevantClockOuts = $clockOutsForDay->filter(fn($r) => $r->datetime->isSameDay($shiftActualOut));
         if ($relevantClockOuts->count() > 1) {
-            $times = $relevantClockOuts->pluck('datetime')->sort();
-            for ($i = 1; $i < $times->count(); $i++) {
-                if ($times->get($i)->diffInHours($times->get($i - 1)) > 1) {
-                    return true;
+            $timesOuts = $relevantClockOuts->pluck('datetime')->sort(); // $timesOuts should be a collection of Carbon objects
+            for ($i = 1; $i < $timesOuts->count(); $i++) {
+                $currentTime  = $timesOuts->get($i);
+                $previousTime = $timesOuts->get($i - 1);
+
+                // --- THIS IS AROUND YOUR LINE 347 ---
+                if (! $currentTime instanceof \Carbon\Carbon) {
+                    \Log::error('detectHumanError (OUTS): currentTime is not Carbon!', ['type' => gettype($currentTime), 'value' => $currentTime]);
+                    // Potentially throw an exception or handle error to prevent further issues
+                    throw new \Exception('detectHumanError (OUTS): currentTime is not a Carbon object.');
+                }
+                if (! $previousTime instanceof \Carbon\Carbon) {
+                    \Log::error('detectHumanError (OUTS): previousTime is not Carbon!', ['type' => gettype($previousTime), 'value' => $previousTime]);
+                    // Potentially throw an exception
+                    throw new \Exception('detectHumanError (OUTS): previousTime is not a Carbon object.');
                 }
 
+                \Log::debug("detectHumanError (OUTS): Comparing: Current: {$currentTime->toDateTimeString()}, Previous: {$previousTime->toDateTimeString()}");
+
+                // This is the original line that likely corresponds to your line 347
+                if ($currentTime->diffInHours($previousTime) > 1) {
+                    return true;
+                }
             }
         }
         return false;
