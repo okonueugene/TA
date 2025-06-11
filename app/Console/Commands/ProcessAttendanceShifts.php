@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Console\Commands;
 
 use App\Models\Attendance;
@@ -13,23 +12,23 @@ use Illuminate\Support\Facades\DB;
 
 class ProcessAttendanceShifts extends Command
 {
-    protected $signature = 'process:shifts {date? : The date to process (YYYY-MM-DD). Shifts are recorded under this date.}';
+    protected $signature   = 'process:shifts {date? : The date to process (YYYY-MM-DD). Shifts are recorded under this date.}';
     protected $description = 'Processes attendance, associating shifts with the given date (as start or end for night shifts).';
 
     // Shift definitions
-    const DAY_SHIFT_START_HOUR = 7;
-    const DAY_SHIFT_START_MINUTE = 0;
-    const DAY_SHIFT_END_HOUR = 18;
-    const DAY_SHIFT_END_MINUTE = 0;
-    const NIGHT_SHIFT_START_HOUR = 18;
-    const NIGHT_SHIFT_START_MINUTE = 0;
-    const NIGHT_SHIFT_END_HOUR = 7;
-    const NIGHT_SHIFT_END_MINUTE = 0;
-    const PREV_DAY_NIGHT_IN_AFTER_HOUR = 17;
+    const DAY_SHIFT_START_HOUR             = 7;
+    const DAY_SHIFT_START_MINUTE           = 0;
+    const DAY_SHIFT_END_HOUR               = 18;
+    const DAY_SHIFT_END_MINUTE             = 0;
+    const NIGHT_SHIFT_START_HOUR           = 18;
+    const NIGHT_SHIFT_START_MINUTE         = 0;
+    const NIGHT_SHIFT_END_HOUR             = 7;
+    const NIGHT_SHIFT_END_MINUTE           = 0;
+    const PREV_DAY_NIGHT_IN_AFTER_HOUR     = 17;
     const TARGET_DAY_NIGHT_OUT_BEFORE_HOUR = 8;
     const NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR = 10;
-    const DAY_SHIFT_START_BUFFER_MINUTES = 30;
-    const MIN_HOURS_FOR_SAME_PIN_SHIFT = 4; // Added constant for human error check
+    const DAY_SHIFT_START_BUFFER_MINUTES   = 30;
+    const MIN_HOURS_FOR_SAME_PIN_SHIFT     = 4; // Added constant for human error check
 
     public function handle()
     {
@@ -39,10 +38,10 @@ class ProcessAttendanceShifts extends Command
         $shiftsProcessed = 0;
         DB::transaction(function () use ($targetDate, &$shiftsProcessed) {
             $previousDay = $targetDate->copy()->subDay();
-            $nextDay = $targetDate->copy()->addDay();
+            $nextDay     = $targetDate->copy()->addDay();
 
             $activityStartDate = $targetDate->copy()->subDays(1)->startOfDay(); // Fetch from previous day start
-            $activityEndDate = $targetDate->copy()->addDays(1)->endOfDay();   // Fetch till next day end
+            $activityEndDate   = $targetDate->copy()->addDays(1)->endOfDay();   // Fetch till next day end
 
             $potentialPins = Attendance::whereBetween('datetime', [$activityStartDate, $activityEndDate])
                 ->distinct()
@@ -76,7 +75,7 @@ class ProcessAttendanceShifts extends Command
 
     private function processEmployeeShifts(Employee $employee, Carbon $targetDate, Carbon $previousDay, Carbon $nextDay, &$shiftsProcessed)
     {
-        $employeePin = $employee->pin;
+        $employeePin       = $employee->pin;
         $usedAttendanceIds = new Collection(); // Initialize here for each employee
 
         EmployeeShift::where('employee_pin', $employeePin)->whereDate('shift_date', $targetDate->toDateString())->delete();
@@ -89,9 +88,9 @@ class ProcessAttendanceShifts extends Command
             ->whereDate('datetime', '<=', $nextDay->toDateString())
             ->orderBy('datetime')
             ->get()->map(function ($record) {
-                $record->datetime = Carbon::parse($record->datetime); // Ensure Carbon
-                return $record;
-            });
+            $record->datetime = Carbon::parse($record->datetime); // Ensure Carbon
+            return $record;
+        });
 
         // --- 1. Process Night Shifts: Started Previous Day, Ending on Target Date ---
         $this->processNightShiftEndingOnTargetDay($employee, $targetDate, $previousDay, $allEmployeePunches, $usedAttendanceIds, $shiftsProcessed);
@@ -115,88 +114,108 @@ class ProcessAttendanceShifts extends Command
         });
     }
 
-    private function processNightShiftEndingOnTargetDay(Employee $employee, Carbon $targetEndDate, Carbon $previousDay, Collection $allEmployeePunches, Collection &$usedAttendanceIds, &$shiftsProcessed)
-    {
-        $employeePin = $employee->pin;
+ private function processNightShiftEndingOnTargetDay(Employee $employee, Carbon $targetEndDate, Carbon $previousDay, Collection $allEmployeePunches, Collection &$usedAttendanceIds, &$shiftsProcessed)
+{
+    $employeePin = $employee->pin;
+    $prevDayClockIns = $this->getPunches($allEmployeePunches, $previousDay, 'in', $usedAttendanceIds)
+                            ->filter(fn($ci) => $ci->datetime->hour >= self::PREV_DAY_NIGHT_IN_AFTER_HOUR);
+    $targetDayEarlyClockOuts = $this->getPunches($allEmployeePunches, $targetEndDate, 'out', $usedAttendanceIds)
+                                    ->filter(fn($co) => $co->datetime->hour < self::TARGET_DAY_NIGHT_OUT_BEFORE_HOUR);
 
-        $prevDayClockIns = $this->getPunches($allEmployeePunches, $previousDay, 'in', $usedAttendanceIds)
-            ->filter(fn ($ci) => $ci->datetime->hour >= self::PREV_DAY_NIGHT_IN_AFTER_HOUR);
+    if ($prevDayClockIns->isNotEmpty() && $targetDayEarlyClockOuts->isNotEmpty()) {
+        $firstPrevDayNightIn = $prevDayClockIns->sortBy('datetime')->first();
+        $matchingTargetDayNightOut = $targetDayEarlyClockOuts->filter(fn($co) => $co->datetime->greaterThan($firstPrevDayNightIn->datetime))
+                                                              ->sortBy('datetime')
+                                                              ->first();
 
-        $targetDayEarlyClockOuts = $this->getPunches($allEmployeePunches, $targetEndDate, 'out', $usedAttendanceIds)
-            ->filter(fn ($co) => $co->datetime->hour < self::TARGET_DAY_NIGHT_OUT_BEFORE_HOUR);
+        if ($firstPrevDayNightIn && $matchingTargetDayNightOut) {
+            // --- RECTIFICATION START ---
+            // Check if a shift has already been created for this clock-in or clock-out.
+            // This prevents this function from creating a duplicate of a shift that was
+            // correctly processed by `processShiftsStartingOnTargetDay` on the previous day's run.
+            $shiftAlreadyExists = EmployeeShift::where('clock_in_attendance_id', $firstPrevDayNightIn->id)
+                                                ->orWhere('clock_out_attendance_id', $matchingTargetDayNightOut->id)
+                                                ->exists();
 
-        if ($prevDayClockIns->isNotEmpty() && $targetDayEarlyClockOuts->isNotEmpty()) {
-            $firstPrevDayNightIn = $prevDayClockIns->sortBy('datetime')->first();
-            $matchingTargetDayNightOut = $targetDayEarlyClockOuts
-                ->filter(fn ($co) => $co->datetime->greaterThan($firstPrevDayNightIn->datetime))
-                ->sortBy('datetime')->first();
-
-            if ($firstPrevDayNightIn && $matchingTargetDayNightOut) {
-                $this->processCompleteShiftWrapper($employee, $previousDay, $firstPrevDayNightIn, $matchingTargetDayNightOut, $allEmployeePunches, $shiftsProcessed, true);
+            if ($shiftAlreadyExists) {
+                $this->info("Skipping night shift for PIN {$employeePin} ending on {$targetEndDate->toDateString()} because it was already processed.");
+                // Mark punches as used for this run to prevent them being processed as isolated punches.
                 $usedAttendanceIds->push($firstPrevDayNightIn->id);
                 $usedAttendanceIds->push($matchingTargetDayNightOut->id);
+                return; // Exit and do not create a duplicate shift.
             }
+            // --- RECTIFICATION END ---
+
+            $this->processCompleteShiftWrapper($employee, $previousDay, $firstPrevDayNightIn, $matchingTargetDayNightOut, $allEmployeePunches, $shiftsProcessed, true);
+            $usedAttendanceIds->push($firstPrevDayNightIn->id);
+            $usedAttendanceIds->push($matchingTargetDayNightOut->id);
         }
     }
+}
 
-    private function processShiftsStartingOnTargetDay(Employee $employee, Carbon $targetDate, Carbon $nextDay, Collection $allEmployeePunches, Collection &$usedAttendanceIds, &$shiftsProcessed)
-    {
-        $employeePin = $employee->pin;
-        $targetDayClockIns = $this->getPunches($allEmployeePunches, $targetDate, 'in', $usedAttendanceIds);
-        $firstTargetDayIn = $targetDayClockIns->sortBy('datetime')->first();
 
-        if ($firstTargetDayIn) {
-            // 1. First, try to find a conventional clock-out ('out' pin)
-            $potentialClockOutsForTargetStart = new Collection();
-            // Outs on target day (after firstTargetDayIn)
-            $this->getPunches($allEmployeePunches, $targetDate, 'out', $usedAttendanceIds)
-                ->filter(fn ($co) => $co->datetime->greaterThan($firstTargetDayIn->datetime))
-                ->each(fn ($co) => $potentialClockOutsForTargetStart->push($co));
-            // Outs on next day (within lookahead for night shifts)
-            $this->getPunches($allEmployeePunches, $nextDay, 'out', $usedAttendanceIds)
-                ->filter(fn ($co) => $co->datetime->hour < self::NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR)
-                ->each(fn ($co) => $potentialClockOutsForTargetStart->push($co));
+ private function processShiftsStartingOnTargetDay(Employee $employee, Carbon $targetDate, Carbon $nextDay, Collection $allEmployeePunches, Collection &$usedAttendanceIds, &$shiftsProcessed)
+{
+    $employeePin = $employee->pin;
 
-            $lastMatchingOut = $potentialClockOutsForTargetStart->sortByDesc('datetime')->first();
+    $firstTargetDayIn = $this->getPunches($allEmployeePunches, $targetDate, 'in', $usedAttendanceIds)
+                             ->sortBy('datetime')
+                             ->first();
 
-            if ($lastMatchingOut) {
-                // --- Standard complete shift found ---
-                $this->processCompleteShiftWrapper($employee, $targetDate, $firstTargetDayIn, $lastMatchingOut, $allEmployeePunches, $shiftsProcessed, false);
+    if ($firstTargetDayIn) {
+        // --- 1. FIND CLOCK-OUT WITH CORRECT PRIORITY (THE FINAL FIX) ---
+
+        // First, specifically look for a clock-out on the SAME DAY. This is the highest priority.
+        $sameDayClockOuts = $this->getPunches($allEmployeePunches, $targetDate, 'out', $usedAttendanceIds)
+                                 ->filter(fn($co) => $co->datetime->greaterThan($firstTargetDayIn->datetime));
+
+        $lastMatchingOut = $sameDayClockOuts->sortByDesc('datetime')->first();
+
+        // If, and ONLY IF, no clock-out was found on the same day, THEN look for a night shift clock-out.
+        if (!$lastMatchingOut) {
+            $nextDayClockOuts = $this->getPunches($allEmployeePunches, $nextDay, 'out', $usedAttendanceIds)
+                                     ->filter(fn($co) => $co->datetime->hour < self::NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR);
+            
+            // For a next-day punch, the earliest one is typically the correct one.
+            $lastMatchingOut = $nextDayClockOuts->sortBy('datetime')->first();
+        }
+
+
+        // --- 2. PROCESS THE SHIFT ---
+        if ($lastMatchingOut) {
+            // --- A. VALID SHIFT FOUND ---
+            $isNightShift = !$lastMatchingOut->datetime->isSameDay($targetDate);
+            $this->processCompleteShiftWrapper($employee, $targetDate, $firstTargetDayIn, $lastMatchingOut, $allEmployeePunches, $shiftsProcessed, $isNightShift);
+
+            // Robustly consume ALL punches between the start and end of this shift
+            $shiftStartTime = $firstTargetDayIn->datetime;
+            $shiftEndTime = $lastMatchingOut->datetime;
+            $allPunchesWithinShift = $allEmployeePunches->filter(function($punch) use ($shiftStartTime, $shiftEndTime) {
+                return $punch->datetime->gte($shiftStartTime) && $punch->datetime->lte($shiftEndTime);
+            });
+            $allPunchesWithinShift->pluck('id')->each(fn($id) => $usedAttendanceIds->push($id));
+            $usedAttendanceIds = $usedAttendanceIds->unique()->values();
+
+        } else {
+            // --- B. NO CLOCK-OUT FOUND, CHECK FOR IN-IN ERROR ---
+            $humanErrorClockOut = $this->getPunches($allEmployeePunches, $targetDate, 'in', $usedAttendanceIds)
+                ->filter(fn($punch) => $punch->datetime->greaterThan($firstTargetDayIn->datetime))
+                ->sortBy('datetime')
+                ->first();
+
+            if ($humanErrorClockOut) {
+                $this->processCompleteShiftWrapper($employee, $targetDate, $firstTargetDayIn, $humanErrorClockOut, $allEmployeePunches, $shiftsProcessed, false, true);
                 $usedAttendanceIds->push($firstTargetDayIn->id);
-                $usedAttendanceIds->push($lastMatchingOut->id);
+                $usedAttendanceIds->push($humanErrorClockOut->id);
             } else {
-                // 2. *** NEW LOGIC: Check for human error (e.g., IN-IN punch) ***
-                // No conventional clock-out was found. Let's look for a plausible second 'in' punch.
-                $humanErrorClockOut = $this->getPunches($allEmployeePunches, $targetDate, 'in', $usedAttendanceIds)
-                    ->filter(fn ($punch) => $punch->datetime->greaterThan($firstTargetDayIn->datetime))
-                    ->filter(fn ($punch) => $punch->datetime->diffInHours($firstTargetDayIn->datetime) >= self::MIN_HOURS_FOR_SAME_PIN_SHIFT)
-                    ->sortBy('datetime') // Find the next 'in' punch that qualifies
-                    ->first();
-
-                if ($humanErrorClockOut) {
-                    // --- Human error shift found (e.g. IN-IN) ---
-                    $this->processCompleteShiftWrapper(
-                        $employee,
-                        $targetDate,
-                        $firstTargetDayIn,
-                        $humanErrorClockOut, // Treat the second 'in' as the 'out'
-                        $allEmployeePunches,
-                        $shiftsProcessed,
-                        false, // isPrevDayNightShift
-                        true   // isHumanErrorOverride
-                    );
-                    $usedAttendanceIds->push($firstTargetDayIn->id);
-                    $usedAttendanceIds->push($humanErrorClockOut->id);
-                } else {
-                    // --- No clock-out of any kind found, process as missing ---
-                    $isWeekend = $targetDate->isWeekend();
-                    $isHoliday = $this->isHoliday($targetDate);
-                    $this->processMissingClockOut($employeePin, $targetDate, $firstTargetDayIn, $isWeekend, $isHoliday, $shiftsProcessed);
-                    $usedAttendanceIds->push($firstTargetDayIn->id);
-                }
+                $isWeekend = $targetDate->isWeekend();
+                $isHoliday = $this->isHoliday($targetDate);
+                $this->processMissingClockOut($employeePin, $targetDate, $firstTargetDayIn, $isWeekend, $isHoliday, $shiftsProcessed);
+                $usedAttendanceIds->push($firstTargetDayIn->id);
             }
         }
     }
+}
 
     private function processIsolatedPunchesOnTargetDate(Employee $employee, Carbon $targetDate, Collection $allEmployeePunches, Collection &$usedAttendanceIds, &$shiftsProcessed)
     {
@@ -211,7 +230,7 @@ class ProcessAttendanceShifts extends Command
             $usedAttendanceIds->push($isolatedTargetDayIn->id);
         }
 
-        // Check for isolated clock-outs on target Date
+                                                                                                                                                 // Check for isolated clock-outs on target Date
         $isolatedTargetDayOut = $this->getPunches($allEmployeePunches, $targetDate, 'out', $usedAttendanceIds)->sortByDesc('datetime')->first(); // Get the last one if multiple
         if ($isolatedTargetDayOut) {
             $isWeekend = $targetDate->isWeekend();
@@ -224,13 +243,13 @@ class ProcessAttendanceShifts extends Command
     private function processCompleteShiftWrapper(Employee $employee, Carbon $shiftRecordDate, $clockInRecord, $clockOutRecord, Collection $allEmployeePunches, &$shiftsProcessed, bool $isPrevDayNightShift, bool $isHumanErrorOverride = false)
     {
         $shiftActualStartDate = $clockInRecord->datetime->copy()->startOfDay();
-        $isWeekend = $shiftActualStartDate->isWeekend();
-        $isHoliday = $this->isHoliday($shiftActualStartDate);
-        $isSaturday = $shiftActualStartDate->isSaturday();
-        $isSundayOrHoliday = $shiftActualStartDate->isSunday() || $isHoliday;
+        $isWeekend            = $shiftActualStartDate->isWeekend();
+        $isHoliday            = $this->isHoliday($shiftActualStartDate);
+        $isSaturday           = $shiftActualStartDate->isSaturday();
+        $isSundayOrHoliday    = $shiftActualStartDate->isSunday() || $isHoliday;
 
-        // For human error, we need punches specific to the days the shift occurred on
-        $clockInsForErrorCheck = $this->getPunches($allEmployeePunches, $clockInRecord->datetime->copy()->startOfDay(), null, new Collection()); // Fresh get, no usedIDs for error check context
+                                                                                                                                                  // For human error, we need punches specific to the days the shift occurred on
+        $clockInsForErrorCheck  = $this->getPunches($allEmployeePunches, $clockInRecord->datetime->copy()->startOfDay(), null, new Collection()); // Fresh get, no usedIDs for error check context
         $clockOutsForErrorCheck = $this->getPunches($allEmployeePunches, $clockOutRecord->datetime->copy()->startOfDay(), null, new Collection());
 
         $this->processCompleteShift(
@@ -253,7 +272,7 @@ class ProcessAttendanceShifts extends Command
 
     private function processCompleteShift($employeePin, Carbon $shiftRecordDate, $firstClockIn, $lastClockOut, Collection $relevantClockInsForError, Collection $relevantClockOutsForError, $isWeekendBasedOnActualStart, $isHolidayBasedOnActualStart, $isSaturdayBasedOnActualStart, $isSundayOrHolidayBasedOnActualStart, &$shiftsProcessed, bool $isPrevDayNightShift, Carbon $shiftActualStartDate, bool $isHumanErrorOverride = false)
     {
-        $clockInTime = $firstClockIn->datetime;
+        $clockInTime  = $firstClockIn->datetime;
         $clockOutTime = $lastClockOut->datetime;
 
         if ($clockOutTime->lessThanOrEqualTo($clockInTime)) {
@@ -264,8 +283,8 @@ class ProcessAttendanceShifts extends Command
             return;
         }
 
-        $hasHumanError = $this->detectHumanError($relevantClockInsForError, $relevantClockOutsForError, $clockInTime, $clockOutTime);
-        $hoursWorked = $clockOutTime->floatDiffInHours($clockInTime);
+        $hasHumanError       = $this->detectHumanError($relevantClockInsForError, $relevantClockOutsForError, $clockInTime, $clockOutTime);
+        $hoursWorked         = $clockOutTime->floatDiffInHours($clockInTime);
         $shiftTypeDetermined = 'unknown';
 
         if ($isWeekendBasedOnActualStart || $isHolidayBasedOnActualStart) {
@@ -274,7 +293,7 @@ class ProcessAttendanceShifts extends Command
             $shiftTypeDetermined = $this->determineShiftType($clockInTime, $clockOutTime, $shiftActualStartDate);
         }
 
-        $latenessMinutes = $this->calculateLateness($clockInTime, $shiftTypeDetermined, $shiftActualStartDate, $isPrevDayNightShift);
+        $latenessMinutes                              = $this->calculateLateness($clockInTime, $shiftTypeDetermined, $shiftActualStartDate, $isPrevDayNightShift);
         [$overtime1_5x, $overtime2_0x, $regularHours] = $this->calculateOvertimeAndHours($hoursWorked, $clockInTime, $clockOutTime, $shiftActualStartDate, $shiftTypeDetermined, $isSaturdayBasedOnActualStart, $isSundayOrHolidayBasedOnActualStart);
 
         $notes = $this->generateNotes($clockInTime, $clockOutTime, $shiftTypeDetermined, $hoursWorked, $hasHumanError, $latenessMinutes, $overtime1_5x, $overtime2_0x, $isHumanErrorOverride);
@@ -304,7 +323,7 @@ class ProcessAttendanceShifts extends Command
         }
 
         $latenessMinutes = $this->calculateLateness($clockIn->datetime, 'day', $clockIn->datetime->copy()->startOfDay(), false);
-        $notes = "Missing clock-out. Clock-in: {$clockIn->datetime->toDateTimeString()}";
+        $notes           = "Missing clock-out. Clock-in: {$clockIn->datetime->toDateTimeString()}";
         $this->createShiftRecord($employeePin, $shiftDate, $clockIn->id, null, $clockIn->datetime, null, 0, $shiftType, false, $notes, $latenessMinutes, 0.0, 0.0, $isHoliday, $isWeekend, 0);
 
         $this->warn("Missing clock-out for employee {$employeePin} on {$shiftDate->toDateString()}");
@@ -334,7 +353,7 @@ class ProcessAttendanceShifts extends Command
     private function detectHumanError(Collection $allClockInsOnDayOfIn, Collection $allClockOutsOnDayOfOut, Carbon $shiftActualIn, Carbon $shiftActualOut): bool
     {
         // Filter to punches on the specific day of the shift's clock-in
-        $relevantClockIns = $allClockInsOnDayOfIn->filter(fn ($p) => $p->datetime->isSameDay($shiftActualIn));
+        $relevantClockIns = $allClockInsOnDayOfIn->filter(fn($p) => $p->datetime->isSameDay($shiftActualIn));
         if ($relevantClockIns->count() > 1) {
             $times = $relevantClockIns->pluck('datetime')->sort();
             for ($i = 1; $i < $times->count(); $i++) {
@@ -345,7 +364,7 @@ class ProcessAttendanceShifts extends Command
         }
 
         // Filter to punches on the specific day of the shift's clock-out
-        $relevantClockOuts = $allClockOutsOnDayOfOut->filter(fn ($p) => $p->datetime->isSameDay($shiftActualOut));
+        $relevantClockOuts = $allClockOutsOnDayOfOut->filter(fn($p) => $p->datetime->isSameDay($shiftActualOut));
         if ($relevantClockOuts->count() > 1) {
             $times = $relevantClockOuts->pluck('datetime')->sort();
             for ($i = 1; $i < $times->count(); $i++) {
@@ -359,8 +378,8 @@ class ProcessAttendanceShifts extends Command
 
     private function determineShiftType(Carbon $clockInTime, Carbon $clockOutTime, Carbon $shiftActualStartDate): string
     {
-        // Core boundaries based on the actual start day of the shift
-        $coreDayShiftStart = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_START_HOUR, self::DAY_SHIFT_START_MINUTE); // 07:00
+                                                                                                                                     // Core boundaries based on the actual start day of the shift
+        $coreDayShiftStart   = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_START_HOUR, self::DAY_SHIFT_START_MINUTE);     // 07:00
         $coreNightShiftStart = $shiftActualStartDate->copy()->setTime(self::NIGHT_SHIFT_START_HOUR, self::NIGHT_SHIFT_START_MINUTE); // 18:00
 
         // Buffered start for 'day' shift classification (e.g., allow clock-in from 06:45)
@@ -383,14 +402,14 @@ class ProcessAttendanceShifts extends Command
             // Buffer for night shift end (e.g. NIGHT_SHIFT_END_HOUR + 4 hours from your original code)
             // This is to catch night shifts that run into overtime but are still fundamentally 'night' shifts.
             $expectedNightShiftNominalEnd = $shiftActualStartDate->copy()->addDay()->setTime(self::NIGHT_SHIFT_END_HOUR, self::NIGHT_SHIFT_END_MINUTE);
-            $bufferedNightShiftActualEnd = $expectedNightShiftNominalEnd->copy()->addHours(4); // e.g., 07:00 + 4 hours = 11:00
+            $bufferedNightShiftActualEnd  = $expectedNightShiftNominalEnd->copy()->addHours(4); // e.g., 07:00 + 4 hours = 11:00
 
             // Standard Night Shift starting on $shiftActualStartDate
             if (
-                $clockInTime->isSameDay($shiftActualStartDate) && // Should always be true in this context of the function call
-                $clockInTime->greaterThanOrEqualTo($coreNightShiftStart) && // Started at/after 18:00 on $shiftActualStartDate
+                $clockInTime->isSameDay($shiftActualStartDate) &&                    // Should always be true in this context of the function call
+                $clockInTime->greaterThanOrEqualTo($coreNightShiftStart) &&          // Started at/after 18:00 on $shiftActualStartDate
                 $clockOutTime->isSameDay($shiftActualStartDate->copy()->addDay()) && // Ends on the next calendar day
-                $clockOutTime->lessThanOrEqualTo($bufferedNightShiftActualEnd) // And ends within a reasonable window (e.g. before 11:00 next day)
+                $clockOutTime->lessThanOrEqualTo($bufferedNightShiftActualEnd)       // And ends within a reasonable window (e.g. before 11:00 next day)
             ) {
                 return 'night';
             }
@@ -398,8 +417,8 @@ class ProcessAttendanceShifts extends Command
             // This condition is for night shifts that started on a *previous day* where $shiftActualStartDate IS that previous day.
             // This is the context when called from `processNightShiftEndingOnTargetDay`.
             if (
-                $clockInTime->isSameDay($shiftActualStartDate) && // Clock-in is on the (previous) $shiftActualStartDate
-                $clockInTime->hour >= self::PREV_DAY_NIGHT_IN_AFTER_HOUR && // Started late on $shiftActualStartDate (e.g. after 17:00)
+                $clockInTime->isSameDay($shiftActualStartDate) &&                    // Clock-in is on the (previous) $shiftActualStartDate
+                $clockInTime->hour >= self::PREV_DAY_NIGHT_IN_AFTER_HOUR &&          // Started late on $shiftActualStartDate (e.g. after 17:00)
                 $clockOutTime->isSameDay($shiftActualStartDate->copy()->addDay()) && // Ends on the next day relative to $shiftActualStartDate
                 $clockOutTime->hour < self::TARGET_DAY_NIGHT_OUT_BEFORE_HOUR
             ) { // Ends early morning (e.g. before 08:00)
@@ -421,7 +440,7 @@ class ProcessAttendanceShifts extends Command
         } elseif ($shiftType === 'night') {
             // If it's a night shift that started on a previous day, its lateness is against PREV_DAY_NIGHT_IN_AFTER_HOUR
             // If it's a night shift starting on shiftActualStartDate, its lateness is against NIGHT_SHIFT_START_HOUR
-            $expectedHour = $isPrevDayNightShift ? self::PREV_DAY_NIGHT_IN_AFTER_HOUR : self::NIGHT_SHIFT_START_HOUR;
+            $expectedHour  = $isPrevDayNightShift ? self::PREV_DAY_NIGHT_IN_AFTER_HOUR : self::NIGHT_SHIFT_START_HOUR;
             $expectedStart = $shiftActualStartDate->copy()->setTime($expectedHour, 0);
         } else {
             return 0; // No lateness for irregular, overtime_shift, incomplete, missing
@@ -454,13 +473,13 @@ class ProcessAttendanceShifts extends Command
             }
 
             $calendarDayOfSegment = $currentDt->copy()->startOfDay();
-            $isHolidaySegment = $this->isHoliday($calendarDayOfSegment);
+            $isHolidaySegment     = $this->isHoliday($calendarDayOfSegment);
 
             // Use $isSaturday and $isSundayOrHoliday passed in, which are based on $shiftActualStartDate for the primary rate
             // but check segment's day for applying specific day's holiday status.
             $hourRateAppliedToOvertime = false;
 
-            if ($calendarDayOfSegment->isSaturday() && !$isHolidaySegment) { // Actual Saturday
+            if ($calendarDayOfSegment->isSaturday() && ! $isHolidaySegment) { // Actual Saturday
                 $overtime1_5x += $segmentDurationHours;
                 $hourRateAppliedToOvertime = true;
             } elseif ($calendarDayOfSegment->isSunday() || $isHolidaySegment) { // Actual Sunday or Holiday
@@ -468,7 +487,7 @@ class ProcessAttendanceShifts extends Command
                 $hourRateAppliedToOvertime = true;
             }
 
-            if (!$hourRateAppliedToOvertime) { // Weekday segment
+            if (! $hourRateAppliedToOvertime) { // Weekday segment
                 $isRegularSegmentHour = true;
 
                 if ($shiftType === 'day' && $calendarDayOfSegment->isSameDay($shiftActualStartDate)) {
@@ -480,7 +499,7 @@ class ProcessAttendanceShifts extends Command
                 } elseif ($shiftType === 'night') {
                     // Nightshift OT is after 07:00 on the day the standard night shift portion ends.
                     // The standard night shift portion ends on $shiftActualStartDate->addDay()
-                    $nightShiftStandardEndDay = $shiftActualStartDate->copy()->addDay();
+                    $nightShiftStandardEndDay  = $shiftActualStartDate->copy()->addDay();
                     $nightShiftStandardEndTime = $nightShiftStandardEndDay->copy()->setTime(self::NIGHT_SHIFT_END_HOUR, self::NIGHT_SHIFT_END_MINUTE);
 
                     if ($calendarDayOfSegment->isSameDay($nightShiftStandardEndDay) && $currentDt->greaterThanOrEqualTo($nightShiftStandardEndTime)) {
@@ -499,10 +518,10 @@ class ProcessAttendanceShifts extends Command
         // For now, we assume the minute-by-minute sum is accurate.
         // If $totalHoursWorkedInitially is the source of truth for total, then regular can be derived.
         $calculatedTotalOvertime = $overtime1_5x + $overtime2_0x;
-        $derivedRegularHours = $totalHoursWorkedInitially - $calculatedTotalOvertime;
+        $derivedRegularHours     = $totalHoursWorkedInitially - $calculatedTotalOvertime;
 
-        // Prefer derived regular hours if consistent, otherwise use summed.
-        // This ensures total_hours = regular + OT.
+                                                                                                 // Prefer derived regular hours if consistent, otherwise use summed.
+                                                                                                 // This ensures total_hours = regular + OT.
         $regularHours = ($derivedRegularHours >= -0.001) ? $derivedRegularHours : $regularHours; // allow small float diff
         if ($regularHours < 0) {
             $regularHours = 0;
@@ -517,7 +536,7 @@ class ProcessAttendanceShifts extends Command
 
     private function generateNotes(Carbon $clockInTime, Carbon $clockOutTime, string $shiftType, float $hoursWorked, bool $hasHumanError = false, int $latenessMinutes = 0, float $overtime1_5x = 0, float $overtime2_0x = 0, bool $isHumanErrorOverride = false): string
     {
-        $notes = [];
+        $notes   = [];
         $notes[] = "Type: " . ucfirst(str_replace('_', '', $shiftType));
 
         if ($clockInTime) {
@@ -551,34 +570,34 @@ class ProcessAttendanceShifts extends Command
     private function createShiftRecord($employeePin, Carbon $shiftRecordDate, $clockInId, $clockOutId, ?Carbon $clockInTime, ?Carbon $clockOutTime, float $hoursWorked, string $shiftType, bool $isComplete, string $notes, int $latenessMinutes, float $overtime1_5x, float $overtime2_0x, bool $isHolidayOnRecordDate, bool $isWeekendOnRecordDate, float $regularHours)
     {
         EmployeeShift::create([
-            'employee_pin' => $employeePin,
-            'shift_date' => $shiftRecordDate->toDateString(),
-            'clock_in_attendance_id' => $clockInId,
+            'employee_pin'            => $employeePin,
+            'shift_date'              => $shiftRecordDate->toDateString(),
+            'clock_in_attendance_id'  => $clockInId,
             'clock_out_attendance_id' => $clockOutId,
-            'clock_in_time' => $clockInTime,
-            'clock_out_time' => $clockOutTime,
-            'hours_worked' => round($hoursWorked, 2),
-            'regular_hours_worked' => round($regularHours, 2),
-            'shift_type' => $shiftType,
-            'is_complete' => $isComplete,
-            'notes' => $notes,
-            'lateness_minutes' => $latenessMinutes,
-            'overtime_hours_1_5x' => round($overtime1_5x, 2),
-            'overtime_hours_2_0x' => round($overtime2_0x, 2),
-            'is_holiday' => $isHolidayOnRecordDate,
-            'is_weekend' => $isWeekendOnRecordDate,
+            'clock_in_time'           => $clockInTime,
+            'clock_out_time'          => $clockOutTime,
+            'hours_worked'            => round($hoursWorked, 2),
+            'regular_hours_worked'    => round($regularHours, 2),
+            'shift_type'              => $shiftType,
+            'is_complete'             => $isComplete,
+            'notes'                   => $notes,
+            'lateness_minutes'        => $latenessMinutes,
+            'overtime_hours_1_5x'     => round($overtime1_5x, 2),
+            'overtime_hours_2_0x'     => round($overtime2_0x, 2),
+            'is_holiday'              => $isHolidayOnRecordDate,
+            'is_weekend'              => $isWeekendOnRecordDate,
         ]);
     }
 
     protected function isHoliday(Carbon $date): bool
     {
         static $holidaysCache = [];
-        $dateString = $date->toDateString();
+        $dateString           = $date->toDateString();
         if (isset($holidaysCache[$dateString])) {
             return $holidaysCache[$dateString];
         }
 
-        $isActualHoliday = Holiday::whereDate('start_date', $date->toDateString())->where('description', 'LIKE', '%Public holiday%')->exists();
+        $isActualHoliday            = Holiday::whereDate('start_date', $date->toDateString())->where('description', 'LIKE', '%Public holiday%')->exists();
         $holidaysCache[$dateString] = $isActualHoliday;
         return $isActualHoliday;
     }
