@@ -35,14 +35,14 @@
         
         /* Custom styles for better event display */
         .fc-daygrid-day {
-            min-height: 120px !important; /* Increase cell height */
+            min-height: 100px !important; /* Smaller base cell height */
         }
         
         .fc-event {
-            font-size: 10px !important; /* Smaller font for events */
+            font-size: 9px !important; /* Smaller font for events */
             margin: 1px 0 !important; /* Small margin between events */
-            padding: 1px 3px !important; /* Compact padding */
-            border-radius: 3px !important;
+            padding: 1px 2px !important; /* More compact padding */
+            border-radius: 2px !important;
         }
         
         .fc-event-title {
@@ -62,6 +62,113 @@
         /* Make sure events don't overlap */
         .fc-daygrid-event {
             margin-bottom: 1px !important;
+        }
+        
+        /* Responsive scaling for larger screens - more conservative */
+        @media (min-width: 768px) {
+            .fc-daygrid-day {
+                min-height: 110px !important;
+            }
+            
+            .fc-event {
+                font-size: 10px !important;
+                padding: 1px 3px !important;
+                margin: 1px 0 !important;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 13px !important;
+                font-weight: 500 !important;
+            }
+        }
+        
+        @media (min-width: 1024px) {
+            .fc-daygrid-day {
+                min-height: 120px !important;
+            }
+            
+            .fc-event {
+                font-size: 10px !important;
+                padding: 2px 3px !important;
+                margin: 1px 0 !important;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 14px !important;
+                font-weight: 500 !important;
+            }
+            
+            .fc-col-header-cell-cushion {
+                font-size: 13px !important;
+                font-weight: 500 !important;
+            }
+        }
+        
+        @media (min-width: 1200px) {
+            .fc-daygrid-day {
+                min-height: 130px !important;
+            }
+            
+            .fc-event {
+                font-size: 11px !important;
+                padding: 2px 4px !important;
+                margin: 1px 0 !important;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 15px !important;
+                font-weight: 500 !important;
+            }
+            
+            .fc-col-header-cell-cushion {
+                font-size: 14px !important;
+                font-weight: 500 !important;
+            }
+        }
+        
+        @media (min-width: 1440px) {
+            .fc-daygrid-day {
+                min-height: 140px !important;
+            }
+            
+            .fc-event {
+                font-size: 11px !important;
+                padding: 2px 4px !important;
+                margin: 2px 0 !important;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 16px !important;
+                font-weight: 500 !important;
+            }
+            
+            .fc-col-header-cell-cushion {
+                font-size: 15px !important;
+                font-weight: 500 !important;
+            }
+        }
+        
+        @media (min-width: 1920px) {
+            .fc-daygrid-day {
+                min-height: 150px !important;
+            }
+            
+            .fc-event {
+                font-size: 12px !important;
+                padding: 3px 5px !important;
+                margin: 2px 0 !important;
+                border-radius: 3px !important;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 17px !important;
+                font-weight: 500 !important;
+            }
+            
+            .fc-col-header-cell-cushion {
+                font-size: 16px !important;
+                font-weight: 500 !important;
+            }
         }
     </style>
 </head>
@@ -103,7 +210,7 @@
             showNonCurrentDates: false, // This should hide other month dates
             fixedWeekCount: false, // This prevents showing 6 weeks always
             height: 'auto',
-            aspectRatio: 1.8, // Adjust this to control calendar proportions
+            aspectRatio: window.innerWidth >= 1200 ? 1.9 : window.innerWidth >= 768 ? 1.7 : 1.5, // More conservative aspect ratios
             dayMaxEvents: false, // Show all events instead of limiting
             moreLinkClick: 'popover', // Show popover when there are many events
             headerToolbar: {
@@ -113,8 +220,8 @@
             },
             // Group events by date and display them compactly
             eventDisplay: 'block',
-            eventMaxStack: 3, // Limit visible events per day
-            dayMaxEventRows: 4, // Show up to 4 rows of events per day
+            eventMaxStack: window.innerWidth >= 1200 ? 4 : 3, // Conservative event stacking
+            dayMaxEventRows: window.innerWidth >= 1200 ? 5 : 4, // Conservative row limits
             eventOrder: ['extendedProps.sortOrder', 'start'], // Order events by our custom sort order, then by start time
             events: [
                 @foreach($attendances as $date => $records)
