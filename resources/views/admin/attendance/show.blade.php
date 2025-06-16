@@ -36,6 +36,7 @@
         /* Custom styles for better event display */
         .fc-daygrid-day {
             min-height: 100px !important; /* Smaller base cell height */
+            overflow: visible !important; /* Ensure events don't get cut off */
         }
         
         .fc-event {
@@ -43,10 +44,14 @@
             margin: 1px 0 !important; /* Small margin between events */
             padding: 1px 2px !important; /* More compact padding */
             border-radius: 2px !important;
+            white-space: nowrap !important; /* Prevent text wrapping */
+            overflow: visible !important; /* Make sure events are visible */
+            z-index: 1 !important; /* Ensure events appear above other elements */
         }
         
         .fc-event-title {
             font-weight: 500 !important;
+            overflow: visible !important;
         }
         
         /* Hide dates from other months */
@@ -57,11 +62,28 @@
         /* Ensure proper spacing for multiple events */
         .fc-daygrid-event-harness {
             margin-bottom: 1px !important;
+            overflow: visible !important;
         }
         
         /* Make sure events don't overlap */
         .fc-daygrid-event {
             margin-bottom: 1px !important;
+            overflow: visible !important;
+        }
+        
+        /* Ensure calendar container has proper overflow */
+        #attendance-calendar {
+            overflow: visible !important;
+        }
+        
+        /* Fix for calendar table overflow */
+        .fc-scrollgrid, .fc-scrollgrid-section, .fc-daygrid-body {
+            overflow: visible !important;
+        }
+        
+        /* Ensure day cells don't clip content */
+        .fc-daygrid-day-frame {
+            overflow: visible !important;
         }
         
         /* Responsive scaling for larger screens - more conservative */
@@ -220,9 +242,12 @@
             },
             // Group events by date and display them compactly
             eventDisplay: 'block',
-            eventMaxStack: window.innerWidth >= 1200 ? 4 : 3, // Conservative event stacking
-            dayMaxEventRows: window.innerWidth >= 1200 ? 5 : 4, // Conservative row limits
+            eventMaxStack: false, // Remove event stacking limit
+            dayMaxEventRows: false, // Remove row limits to show all events
             eventOrder: ['extendedProps.sortOrder', 'start'], // Order events by our custom sort order, then by start time
+            // Ensure events are not clipped
+            eventOverlap: true,
+            eventConstraint: false,
             events: [
                 @foreach($attendances as $date => $records)
                     @php
