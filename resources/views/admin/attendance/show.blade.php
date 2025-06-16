@@ -115,19 +115,27 @@
             eventDisplay: 'block',
             eventMaxStack: 3, // Limit visible events per day
             dayMaxEventRows: 4, // Show up to 4 rows of events per day
+            eventOrder: ['extendedProps.sortOrder', 'start'], // Order events by our custom sort order, then by start time
             events: [
                 @foreach($attendances as $date => $records)
-                    @foreach($records as $attendance)
+                    @php
+                        // Sort records by datetime to ensure proper chronological order
+                        $sortedRecords = collect($records)->sortBy('datetime');
+                    @endphp
+                    @foreach($sortedRecords as $index => $attendance)
                         {
                             title: '{{ substr($attendance->pin, 0, 1) == 1 ? "🟢" : "🔴" }} {{ substr($attendance->pin, 0, 1) == 1 ? "Clock-In" : "Clock-Out" }}: {{ \Carbon\Carbon::parse($attendance->datetime)->format('H:i') }}',
-                            start: '{{ \Carbon\Carbon::parse($attendance->datetime)->format('Y-m-d') }}',
+                            start: '{{ \Carbon\Carbon::parse($attendance->datetime)->format('Y-m-d\TH:i:s') }}',
                             allDay: true, // Make events all-day to fit better
                             backgroundColor: '{{ substr($attendance->pin, 0, 1) == 1 ? "#28a745" : "#dc3545" }}',
                             borderColor: '{{ substr($attendance->pin, 0, 1) == 1 ? "#28a745" : "#dc3545" }}',
                             textColor: '#ffffff',
+                            order: {{ $loop->index }}, // This ensures chronological ordering
                             extendedProps: {
                                 time: '{{ \Carbon\Carbon::parse($attendance->datetime)->format('H:i:s') }}',
-                                type: '{{ substr($attendance->pin, 0, 1) == 1 ? "Clock In" : "Clock Out" }}'
+                                type: '{{ substr($attendance->pin, 0, 1) == 1 ? "Clock In" : "Clock Out" }}',
+                                datetime: '{{ $attendance->datetime }}',
+                                sortOrder: {{ $loop->index }}
                             }
                         },
                     @endforeach
