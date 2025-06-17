@@ -17,7 +17,8 @@
                                     <div class="toggle-expand-content" data-content="more-options">
                                         <ul class="nk-block-tools g-3">
                                             <li>
-                                                <a href="{{ route('admin.users.create') }}" class="btn btn-white btn-outline-light">
+                                                <a href="{{ route('admin.users.create') }}"
+                                                    class="btn btn-white btn-outline-light">
                                                     <em class="icon ni ni-plus"></em>
                                                     <span>Create User</span>
                                                 </a>
@@ -28,31 +29,29 @@
                             </div>
                         </div>
                     </div>
-                    <div class="nk-block nk-block-lg">
-                        <div class="card card-preview">
-                            <div class="card-inner">
-                                <table class="nk-tb-list nk-tb-ulist" id="page_table">
-                                    <thead>
-                                        <tr class="nk-tb-item nk-tb-head">
-                                            <th class="nk-tb-col nk-tb-col-check">
-                                                <div class="custom-control custom-control-sm custom-checkbox notext">
-                                                    <input type="checkbox" class="custom-control-input">
-                                                    <label class="custom-control-label"></label>
-                                                </div>
-                                            </th>
-                                            <th class="nk-tb-col"><span class="sub-text">Name</span></th>
-                                            <th class="nk-tb-col tb-col-md"><span class="sub-text">Email</span></th>
-                                            <th class="nk-tb-col tb-col-md"><span class="sub-text">Role</span></th>
-                                            <th class="nk-tb-col tb-col-md"><span class="sub-text">Last Seen</span></th>
-                                            <th class="nk-tb-col nk-tb-col-tools text-end">
-                                                <span class="sub-text">Actions</span>
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                    </tbody>
-                                </table>
-                            </div>
+                    <div class="nk-block">
+                        <div class="card card-bordered card-stretch">
+                            <table class="cell-border stripe row-border hover" id="page_table" style="width:100%">
+                                <thead>
+                                    <tr class="nk-tb-item nk-tb-head">
+                                        <th class="nk-tb-col nk-tb-col-check">
+                                            <div class="custom-control custom-control-sm custom-checkbox notext">
+                                                <input type="checkbox" class="custom-control-input">
+                                                <label class="custom-control-label"></label>
+                                            </div>
+                                        </th>
+                                        <th class="nk-tb-col"><span class="sub-text">Name</span></th>
+                                        <th class="nk-tb-col tb-col-md"><span class="sub-text">Email</span></th>
+                                        <th class="nk-tb-col tb-col-md"><span class="sub-text">Role</span></th>
+                                        <th class="nk-tb-col tb-col-md"><span class="sub-text">Last Seen</span></th>
+                                        <th class="nk-tb-col nk-tb-col-tools text-end">
+                                            <span class="sub-text">Actions</span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -93,7 +92,7 @@
                 },
             ];
 
-           var filters = {};
+            var filters = {};
 
             var page_table = __initializePageTable(url, columns, filters);
         });
