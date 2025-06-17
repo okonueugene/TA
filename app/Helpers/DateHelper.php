@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Helpers;
 
 use App\Models\Holiday;
@@ -7,19 +6,54 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
 class DateHelper
 {
-    public static function getBusinessDays(string $date = null): int
+    /**
+     * Calculates business days based on the arguments provided.
+     *
+     * Can be called in three ways:
+     * 1. getBusinessDays(int $year, int $month) - Gets total business days for that entire month.
+     * 2. getBusinessDays(string $date)          - Gets business days from start of that month to the given date.
+     * 3. getBusinessDays()                      - Gets total business days for the current month.
+     *
+     * @param mixed ...$args The arguments for calculation.
+     * @return int The number of business days.
+     */
+    public static function getBusinessDays(...$args): int
     {
-        if ($date) {
-            // If a date is passed, count from start of that month to that date
-            $start = Carbon::parse($date)->startOfMonth();
-            $end = Carbon::parse($date)->endOfDay(); // Include the full passed day
-        } else {
-            // If no date, get current full month
-            $start = Carbon::now()->startOfMonth();
-            $end = Carbon::now()->endOfMonth();
+        $start = null;
+        $end   = null;
+
+        // NEW: Handle different ways of calling the function
+        switch (count($args)) {
+            case 2:
+                // Scenario: getBusinessDays(2025, 5)
+                // Calculates for the entire month of May 2025.
+                $year  = $args[0];
+                $month = $args[1];
+                $start = Carbon::create($year, $month)->startOfMonth();
+                $end   = Carbon::create($year, $month)->endOfMonth();
+                break;
+
+            case 1:
+                // Scenario: getBusinessDays('2025-05-15') or getBusinessDays(today())
+                // If a date is passed, count from start of that month to that date.
+                $date  = $args[0];
+                $start = Carbon::parse($date)->startOfMonth();
+                $end   = Carbon::parse($date)->endOfDay(); // Include the full passed day
+                break;
+
+            case 0:
+                // Scenario: getBusinessDays()
+                // If no date, get the full current month.
+                $start = Carbon::now()->startOfMonth();
+                $end   = Carbon::now()->endOfMonth();
+                break;
+
+            default:
+                throw new InvalidArgumentException('getBusinessDays accepts 0, 1, or 2 arguments.');
         }
 
         Log::debug("Calculating business days from {$start->toDateString()} to {$end->toDateString()}");
@@ -27,7 +61,7 @@ class DateHelper
         $excludedDates = self::getHolidayDatesInRange($start, $end);
         Log::debug('Excluded (holiday) dates: ' . json_encode($excludedDates->values()));
 
-        $period = CarbonPeriod::create($start, $end);
+        $period        = CarbonPeriod::create($start, $end);
         $businessDates = collect();
 
         foreach ($period as $date) {
@@ -36,7 +70,7 @@ class DateHelper
                 Log::debug("Skipping weekend: {$dateStr}");
                 continue;
             }
-            if (!$excludedDates->contains($dateStr)) {
+            if (! $excludedDates->contains($dateStr)) {
                 $businessDates->push($dateStr);
             }
         }
@@ -47,20 +81,24 @@ class DateHelper
         return $businessDates->count();
     }
 
+    /**
+     * Retrieves holiday dates within a range using the original logic.
+     * NOTE: This is the original function, restored as requested.
+     */
     protected static function getHolidayDatesInRange(Carbon $start, Carbon $end): Collection
     {
         $holidays = Holiday::where('description', 'Public holiday')
             ->where(function ($query) use ($start, $end) {
                 $query->whereDate('start_date', '<=', $end->toDateString())
-                      ->whereDate('end_date', '>=', $start->toDateString());
+                    ->whereDate('end_date', '>=', $start->toDateString());
             })
             ->get();
 
         Log::debug("Matching holidays from DB:", $holidays->map(function ($holiday) {
             return [
-                'summary' => $holiday->summary,
+                'summary'    => $holiday->summary,
                 'start_date' => $holiday->start_date,
-                'end_date' => $holiday->end_date,
+                'end_date'   => $holiday->end_date,
             ];
         })->toArray());
 
@@ -68,8 +106,8 @@ class DateHelper
 
         foreach ($holidays as $holiday) {
             $holidayStartDate = Carbon::parse($holiday->start_date)->startOfDay();
-            $holidayEndDate = Carbon::parse($holiday->end_date)->startOfDay();
-            $periodToExclude = null;
+            $holidayEndDate   = Carbon::parse($holiday->end_date)->startOfDay();
+            $periodToExclude  = null;
 
             // --- Logic: Treat ANY multi-day holiday as a single day exclusion ---
             if ($holidayStartDate->lt($holidayEndDate)) {

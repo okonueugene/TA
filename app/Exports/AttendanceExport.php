@@ -30,6 +30,7 @@ class AttendanceExport implements FromCollection, WithHeadings, WithMapping, Sho
 
     public function __construct($month, $year, $searchValue = null)
     {
+        
         $this->month = $month;
         $this->year = $year;
         $this->searchValue = $searchValue;
@@ -38,7 +39,7 @@ class AttendanceExport implements FromCollection, WithHeadings, WithMapping, Sho
         $startDate = Carbon::createFromDate($this->year, $this->month, 1)->startOfMonth();
         $endDate = $startDate->copy()->endOfMonth();
         $holidays = Holiday::whereBetween('start_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])->get();
-        $this->totalWorkDaysInMonth = DateHelper::getBusinessDays();
+        $this->totalWorkDaysInMonth = DateHelper::getBusinessDays($this->year, $this->month);
     }
 
     public function collection()
