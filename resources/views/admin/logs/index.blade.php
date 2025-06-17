@@ -12,24 +12,21 @@
                             </div>
                         </div>
                     </div>
-                    <div class="nk-block nk-block-lg">
-                        <div class="card card-preview">
-                            <div class="card-inner">
-                                <table class="datatable-init nk-tb-list nk-tb-ulist" data-auto-responsive="false"
-                                    id="page_table">
-                                    <thead>
-                                        <tr class="nk-tb-item nk-tb-head">
-                                            <th class="nk-tb-col">Log ID</th>
-                                            <th class="nk-tb-col tb-col-mb">Date & Time</th>
-                                            <th class="nk-tb-col tb-col-mb">Action Summary</th>
-                                            <th class="nk-tb-col tb-col-mb">Action By</th>
-                                            <th class="nk-tb-col tb-col-mb">Subject Details</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                    </tbody>
-                                </table>
-                            </div>
+                    <div class="nk-block">
+                        <div class="card card-bordered card-stretch">
+                            <table class="cell-border stripe row-border hover" id="page_table" style="width:100%">
+                                <thead>
+                                    <tr class="nk-tb-item nk-tb-head">
+                                        <th class="nk-tb-col">Log ID</th>
+                                        <th class="nk-tb-col tb-col-mb">Date & Time</th>
+                                        <th class="nk-tb-col tb-col-mb">Action Summary</th>
+                                        <th class="nk-tb-col tb-col-mb">Action By</th>
+                                        <th class="nk-tb-col tb-col-mb">Subject Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
