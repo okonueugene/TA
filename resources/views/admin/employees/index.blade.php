@@ -81,23 +81,28 @@
                 },
                 {
                     data: 'empgender',
-                    name: 'empgender'
+                    name: 'empgender',
+                    searchable: false
                 },
                 {
                     data: 'empoccupation',
-                    name: 'empoccupation'
+                    name: 'empoccupation',
+                    searchable: false
                 },
                 {
                     data: 'empphone',
-                    name: 'empphone'
+                    name: 'empphone',
+                    searchable: false
                 },
                 {
                     data: 'empresidence',
-                    name: 'empresidence'
+                    name: 'empresidence',
+                    searchable: false
                 },
                 {
                     data: 'team',
-                    name: 'team'
+                    name: 'team',
+                    searchable: false
                 },
                 {
                     data: 'action',

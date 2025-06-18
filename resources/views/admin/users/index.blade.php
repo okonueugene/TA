@@ -68,7 +68,9 @@
 
             var columns = [{
                     data: 'id',
-                    name: 'id'
+                    name: 'id',
+                    orderable: false,
+                    searchable: false
                 },
                 {
                     data: 'name',
@@ -80,15 +82,19 @@
                 },
                 {
                     data: 'user_type',
-                    name: 'user_type'
+                    name: 'user_type',
+                    searchable: false
                 },
                 {
                     data: 'last_login_at',
-                    name: 'last_login_at'
+                    name: 'last_login_at',
+                    searchable: false
                 },
                 {
                     data: 'action',
-                    name: 'action'
+                    name: 'action',
+                    orderable: false,
+                    searchable: false
                 },
             ];
 

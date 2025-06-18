@@ -49,7 +49,8 @@
                 },
                 {
                     data: 'created_at', // Maps to the formatted 'created_at' editColumn
-                    name: 'created_at'
+                    name: 'created_at',
+                    searchable: false
                 },
                 {
                     data: 'action_summary', // Maps to the 'action_summary' addColumn

@@ -76,27 +76,34 @@
                 },
                 {
                     data: 'shift_date',
-                    name: 'shift_date'
+                    name: 'shift_date',
+                    searchable: false
                 },
                 {
                     data: 'clock_in_time',
-                    name: 'clock_in_time'
+                    name: 'clock_in_time',
+                    searchable: false
                 },
                 {
                     data: 'clock_out_time',
-                    name: 'clock_out_time'
+                    name: 'clock_out_time',
+                    searchable: false
                 },
                 {
                     data: 'hours_worked',
-                    name: 'hours_worked'
+                    name: 'hours_worked',
+                    searchable: false
                 },
                 {
                     data: 'shift_type',
-                    name: 'shift_type'
+                    name: 'shift_type',
+                    searchable: false
                 },
                 {
                     data: 'action',
-                    name: 'action'
+                    name: 'action',
+                    orderable: false,
+                    searchable: false
                 },
             ];
             var filters = {

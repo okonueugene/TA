@@ -200,17 +200,18 @@ $(document).ready(function() {
         // Employee Information Columns
         { data: 'empname', name: 'employees.empname' },
         // Summary Columns - Updated to match new field names
-        { data: 'days_present', name: 'days_present' },
-        { data: 'day_shifts', name: 'day_shifts' },
-        { data: 'night_shifts', name: 'night_shifts' },
-        { data: 'missing_clockouts', name: 'missing_clockouts' },
-        { data: 'missing_clockins', name: 'missing_clockins' },
-        { data: 'holiday_day_shifts', name: 'holiday_day_shifts' },
-        { data: 'holiday_night_shifts', name: 'holiday_night_shifts' },
+        { data: 'days_present', name: 'days_present', searchable: false },
+        { data: 'day_shifts', name: 'day_shifts', searchable: false },
+        { data: 'night_shifts', name: 'night_shifts', searchable: false },
+        { data: 'missing_clockouts', name: 'missing_clockouts', searchable: false },
+        { data: 'missing_clockins', name: 'missing_clockins', searchable: false },
+        { data: 'holiday_day_shifts', name: 'holiday_day_shifts', searchable: false },
+        { data: 'holiday_night_shifts', name: 'holiday_night_shifts', searchable: false },
         // Updated overtime columns to match new field names
         {
             data: 'overtime_1_5x',
             name: 'overtime_1_5x',
+            searchable: false,
             render: function(data) {
                 return parseFloat(data || 0).toFixed(2);
             }
@@ -218,6 +219,7 @@ $(document).ready(function() {
         {
             data: 'overtime_2_0x',
             name: 'overtime_2_0x',
+            searchable: false,
             render: function(data) {
                 return parseFloat(data || 0).toFixed(2);
             }
