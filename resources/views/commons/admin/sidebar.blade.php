@@ -55,6 +55,12 @@
                             </a>
                         </li>
                         <li class="nk-menu-item">
+                            <a href="{{ url('admin/clocks') }}" class="nk-menu-link">
+                                <span class="nk-menu-icon"><em class="icon ni ni-clock"></em></span>
+                                <span class="nk-menu-text">Clocks</span>
+                            </a>
+                        </li>
+                        <li class="nk-menu-item">
                             <a href="{{ url('admin/attendance') }}" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-calendar-check"></em></span>
                                 <span class="nk-menu-text">Attendance</span>

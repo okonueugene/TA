@@ -9,6 +9,7 @@ use App\Http\Livewire\Admin\Dashboard;
 use App\Http\Livewire\Admin\Departments;
 use App\Http\Controllers\Admin\LogsController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\ClocksController;
 use App\Http\Controllers\Admin\ShiftsController;
 use App\Http\Controllers\Admin\EmployeesController;
 use App\Http\Controllers\Admin\AttendanceController;
@@ -48,6 +49,8 @@ Route::group(['middleware' => 'auth'], function () {
             Route::get('/depatments', Departments::class)->name('admin-departments');
             Route::get('/profile', Profile::class)->name('admin-profile');
             Route::resource('/employees', EmployeesController::class);
+                        Route::get('/clocks/export', [ClocksController::class, 'export'])->name('clocks.export');
+            Route::resource('/clocks', ClocksController::class);
             Route::resource('/attendance', AttendanceController::class);
             Route::get('/attendances/export', [AttendanceController::class, 'export'])->name('attendance.export');
             Route::resource('/shifts', ShiftsController::class);
