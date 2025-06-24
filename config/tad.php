@@ -11,6 +11,14 @@ return [
     'encoding' => env('TAD_ENCODING', 'utf-8'),
 
     // Custom: Notification emails for sync events
+    //   'notify_emails' => [
+    //     'versionaskari19@gmail.com',
+    //     'christine.mwende@mcdave.co.ke',
+    //     'joseph.uimbia@mcdave.co.ke',
+    //     'judith.kendi@mcdave.co.ke'
+        
+    // ],
+
     'notify_emails' => [
         'versionaskari19@gmail.com'
     ],

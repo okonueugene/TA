@@ -116,7 +116,7 @@ class GenerateMonthlyAttendanceReport extends Command
             Log::info("Excel file generated.", ['path' => $fullPath, 'download_name' => $downloadFileName]);
 
             // 5. Get Email Addresses
-            $emails = ['versionaskari19@gmail.com', 'christine.mwende@mcdave.co.ke', 'joseph.uimbia@mcdave.co.ke', 'judith.kendi@mcdave.co.ke'];
+            $emails = config('tad.notify_emails');
 
             $emails = array_filter($emails);
             $this->info('Sending report to: ' . implode(', ', $emails));

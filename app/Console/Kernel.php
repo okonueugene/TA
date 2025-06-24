@@ -1,6 +1,8 @@
 <?php
 namespace App\Console;
+
 use Illuminate\Console\Scheduling\Schedule;
+use Carbon\Carbon;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
@@ -13,7 +15,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         Commands\FetchAttendanceRecords::class,
         Commands\ProcessAttendanceShifts::class,
-        Commands\GenerateMonthlyAttendanceReport::class
+        Commands\GenerateMonthlyAttendanceReport::class,
     ];
 
     /**
@@ -38,27 +40,29 @@ class Kernel extends ConsoleKernel
             ->timezone('Africa/Nairobi')
             ->appendOutputTo(storage_path('logs/shift-processing.log'));
 
-        // Alternative: Process shifts every hour during business hours
-        // Uncomment this if you prefer more frequent processing
-        /*
-        $schedule->command('process:shifts')
-            ->hourly()
-            ->between('06:00', '23:00')
-            ->withoutOverlapping()
-            ->timezone('Africa/Nairobi')
-            ->appendOutputTo(storage_path('logs/shift-processing.log'));
-        */
-
         // Monthly attendance report
         $schedule->command('report:monthly-attendance')
             ->when(function () {
-                return now('Africa/Nairobi')->isSameDay(now('Africa/Nairobi')->startOfMonth()->addDays(23)) && // 24th of month
-                       now('Africa/Nairobi')->between(
-                           now('Africa/Nairobi')->setTime(15, 40),
-                           now('Africa/Nairobi')->setTime(15, 50)
-                       );
+                $now = now('Africa/Nairobi');
+
+                // Calculate the last day of the current month
+                $lastDayOfMonth = Carbon::now('Africa/Nairobi')->endOfMonth();
+
+                // Find the last weekday of the month
+                $lastWeekdayOfMonth = $lastDayOfMonth->copy();
+                while ($lastWeekdayOfMonth->isWeekend()) {
+                    $lastWeekdayOfMonth->subDay();
+                }
+
+                // Calculate the day before the last weekday of the month
+                $dayBeforeLastWeekday = $lastWeekdayOfMonth->copy()->subDay();
+
+                // Check if today is the last weekday of the month OR the day before it
+                $isLastWeekdayOrDayBefore = $now->isSameDay($lastWeekdayOfMonth) || $now->isSameDay($dayBeforeLastWeekday);
+
+                return $isLastWeekdayOrDayBefore;
             })
-            ->everyMinute()
+            ->dailyAt('10:25') // <-- This ensures it runs once at 10:25 AM
             ->withoutOverlapping()
             ->timezone('Africa/Nairobi');
     }
@@ -70,7 +74,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands()
     {
-        $this->load(__DIR__.'/Commands');
+        $this->load(__DIR__ . '/Commands');
         require base_path('routes/console.php');
     }
 }
