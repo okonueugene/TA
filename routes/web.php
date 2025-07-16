@@ -49,16 +49,15 @@ Route::group(['middleware' => 'auth'], function () {
             Route::get('/depatments', Departments::class)->name('admin-departments');
             Route::get('/profile', Profile::class)->name('admin-profile');
             Route::resource('/employees', EmployeesController::class);
-                        Route::get('/clocks/export', [ClocksController::class, 'export'])->name('clocks.export');
+            Route::post('/employees/check-pin', [EmployeesController::class, 'checkPin'])->name('employees.check-pin');
+            Route::get('/clocks/export', [ClocksController::class, 'export'])->name('clocks.export');
             Route::resource('/clocks', ClocksController::class);
             Route::resource('/attendance', AttendanceController::class);
             Route::get('/attendances/export', [AttendanceController::class, 'export'])->name('attendance.export');
             Route::resource('/shifts', ShiftsController::class);
             Route::resource('/users', UserController::class);
             Route::resource('/logs', LogsController::class);
-
-
         }
     );
-
 });
+
