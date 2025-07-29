@@ -2,12 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Attendance;
+use App\Models\Attendance; // Still used for potentialPins identification
 use App\Models\Employee;
 use App\Services\AttendanceProcessor;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache; // Import Cache facade for locking
 
 class ProcessAttendanceShifts extends Command
 {
@@ -46,15 +47,16 @@ class ProcessAttendanceShifts extends Command
      * @var string
      */
     protected $signature = 'process:shifts
-                            {date? : The specific date to process (YYYY-MM-DD). Shifts are recorded under this date.}
-                            {--month= : Process shifts for a whole month (YYYY-MM). If not provided, defaults to the previous month.}';
+                            {date? : The specific date to process (YYYY-MM-DD).}
+                            {--month= : Process shifts for a whole month (YYYY-MM).}
+                            {--employee= : Process a specific employee by PIN.}'; // Added --employee option
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Processes attendance, associating shifts with the given date (as start or end for night shifts). Can process a single day or a whole month. Now uses dedicated helper services.';
+    protected $description = 'Processes attendance shifts for a given date range. Now uses optimized batch processing.';
 
     /**
      * Execute the console command.
@@ -64,121 +66,120 @@ class ProcessAttendanceShifts extends Command
     public function handle()
     {
         $specificDate = $this->argument('date');
-        $monthOption = $this->option('month');
+        $monthOption  = $this->option('month');
+        $employeePin  = $this->option('employee'); // Get the employee PIN option
 
+        $startDate = null;
+        $endDate   = null;
+
+        // --- 1. Determine the overall processing date range ---
         if ($specificDate) {
-            $this->processSingleDay(Carbon::parse($specificDate)->startOfDay());
+            try {
+                $startDate = Carbon::parse($specificDate)->startOfDay();
+                $endDate   = $startDate->copy()->endOfDay();
+                $this->info("Processing shifts for date: {$startDate->toDateString()}.");
+            } catch (\Exception $e) {
+                $this->error("Invalid date format for 'date' argument. Please use YYYY-MM-DD.");
+                return Command::FAILURE;
+            }
         } elseif ($monthOption) {
-            $this->processMonth($monthOption);
+            try {
+                $startDate = Carbon::parse($monthOption)->startOfMonth();
+                $endDate   = $startDate->copy()->endOfMonth();
+                $this->info("Processing shifts for month: {$monthOption} ({$startDate->toDateString()} to {$endDate->toDateString()}).");
+            } catch (\Exception $e) {
+                $this->error("Invalid month format for '--month' option. Please use YYYY-MM.");
+                return Command::FAILURE;
+            }
         } else {
             // Default to processing yesterday if no date or month is specified,
             // as today's shifts might still be incomplete.
-            $this->processSingleDay(Carbon::today()->subDay()->startOfDay());
+            $startDate = Carbon::today()->subDay()->startOfDay();
+            $endDate   = $startDate->copy()->endOfDay();
+            $this->info("Defaulting to processing shifts for yesterday: {$startDate->toDateString()}.");
         }
 
-        return Command::SUCCESS;
-    }
-
-    /**
-     * Processes shifts for a single specified date.
-     *
-     * @param Carbon $targetDate The date to process. Shifts are recorded under this date.
-     */
-    private function processSingleDay(Carbon $targetDate)
-    {
-        $this->info("Processing attendance shifts to be recorded under date: {$targetDate->toDateString()}");
-        $totalShiftsProcessed = 0;
-
-        // Initialize AttendanceProcessor with the command's logging methods
-        $attendanceProcessor = new AttendanceProcessor(function ($level, $message) {
-            if ($level === 'info') $this->info($message);
-            elseif ($level === 'warn') $this->warn($message);
-            elseif ($level === 'error') $this->error($message);
-        });
-
-        DB::transaction(function () use ($targetDate, $attendanceProcessor, &$totalShiftsProcessed) {
-            $previousDay = $targetDate->copy()->subDay();
-            $nextDay = $targetDate->copy()->addDay();
-
-            // Fetch activity over a 3-day window to capture all cross-day shifts
-            $activityStartDate = $previousDay->copy()->startOfDay(); // Start of previous day
-            $activityEndDate = $nextDay->copy()->endOfDay(); // End of next day
-
-            // Eager load distinct employee PINs from attendance records within the activity window
+        // --- 2. Identify employees to process ---
+        $employees = collect();
+        if ($employeePin) {
+            $employee = Employee::where('pin', $employeePin)->first();
+            if ($employee) {
+                $employees->push($employee);
+                $this->info("Processing shifts for specific employee: {$employee->name} (PIN: {$employee->pin}).");
+            } else {
+                $this->error("Employee with PIN '{$employeePin}' not found.");
+                return Command::FAILURE;
+            }
+        } else {
+            // If no specific employee, get all active employees (or filtered by attendance activity in range)
+            // To be truly robust, you'd fetch pins with activity in the extended range first.
+            $activityStartDate = $startDate->copy()->subDays(2)->startOfDay();
+            $activityEndDate   = $endDate->copy()->addDays(2)->endOfDay();
             $potentialPins = Attendance::whereBetween('datetime', [$activityStartDate, $activityEndDate])
                 ->distinct()
                 ->pluck('pin')
-                ->map(function ($pin) {
-                    // Normalize pin: remove leading '1' (clock-in) or '2' (clock-out) if present
-                    return preg_replace('/^[12]/', '', $pin);
-                })
-                ->filter(fn($pin) => !empty($pin)) // Filter out any empty pins after normalization
+                ->map(fn($pin) => preg_replace('/^[12]/', '', $pin))
+                ->filter(fn($pin) => !empty($pin))
                 ->unique()
-                ->values(); // Reset keys
+                ->values();
 
             if ($potentialPins->isEmpty()) {
-                $this->info("No employee activity found around {$targetDate->toDateString()}.");
-                return;
+                $this->info("No employee activity found in the specified range. Nothing to process.");
+                return Command::SUCCESS;
             }
-
-            // Fetch all employee records for the identified pins in a single query
             $employees = Employee::whereIn('pin', $potentialPins)->get();
+            $this->info("Found {$employees->count()} employees with activity in the range.");
+        }
 
-            if ($employees->isEmpty()) {
-                $this->info("No employees found for active pins.");
-                return;
-            }
+        if ($employees->isEmpty()) {
+            $this->info('No employees found to process.');
+            return Command::SUCCESS;
+        }
 
-            // Chunk employees to manage memory for very large datasets
-            $employees->chunk(50)->each(function ($employeeChunk) use ($targetDate, $previousDay, $nextDay, $attendanceProcessor, &$totalShiftsProcessed) {
-                foreach ($employeeChunk as $employee) {
-                    $processedForEmployee = $attendanceProcessor->processEmployeeShifts($employee, $targetDate, $previousDay, $nextDay);
-                    $totalShiftsProcessed += $processedForEmployee;
+        // --- 3. Iterate and process shifts for each employee ---
+        $totalShiftsProcessed = 0;
+        foreach ($employees as $employee) {
+            // Create a unique lock key for this employee and processing period
+            $lockKey = "attendance_process_lock_{$employee->pin}_{$startDate->toDateString()}_{$endDate->toDateString()}";
+            $lock = Cache::lock($lockKey, 300); // Acquire a 5-minute lock
+
+            if ($lock->get()) { // Attempt to acquire the lock
+                try {
+                    $this->comment("--- Processing shifts for employee: {$employee->name} (PIN: {$employee->pin}) ---");
+
+                    // Initialize AttendanceProcessor for this employee (fresh $usedAttendanceIds)
+                    $attendanceProcessor = new AttendanceProcessor(function ($level, $message) {
+                        if ($level === 'info') $this->info($message);
+                        elseif ($level === 'warn') $this->warn($message);
+                        elseif ($level === 'error') $this->error($message);
+                    });
+
+                    // *** CORE CALL TO THE BATCH PROCESSING METHOD ***
+                    $shiftsProcessedForEmployee = $attendanceProcessor->processEmployeeShiftsForDateRange(
+                        $employee,
+                        $startDate, // Start of the overall processing range
+                        $endDate    // End of the overall processing range
+                    );
+                    $totalShiftsProcessed += $shiftsProcessedForEmployee;
+
+                    $this->info("Completed processing for {$employee->name}. Total shifts recorded: {$shiftsProcessedForEmployee}.");
+
+                } catch (\Exception $e) {
+                    $this->error("Error processing shifts for employee {$employee->name} (PIN: {$employee->pin}): " . $e->getMessage());
+                    // Log the full exception for debugging
+                    Log::error("Attendance Processing Error for PIN {$employee->pin}: " . $e->getMessage(), ['exception' => $e, 'employee_pin' => $employee->pin, 'start_date' => $startDate->toDateString(), 'end_date' => $endDate->toDateString()]);
+                } finally {
+                    $lock->release(); // Always release the lock
                 }
-            });
-        });
+            } else {
+                $this->warn("Skipping employee {$employee->name} (PIN: {$employee->pin}): another process is already running for this employee and period.");
+            }
+        }
 
-        $this->info("Finished processing for {$targetDate->toDateString()}. Total shifts processed: {$totalShiftsProcessed}");
+        $this->info("Attendance shifts processing completed. Total shifts processed in this run: {$totalShiftsProcessed}.");
+        return Command::SUCCESS;
     }
 
-    /**
-     * Processes shifts for a given month up to yesterday.
-     *
-     * @param string $monthString The month string in YYYY-MM format.
-     */
-    private function processMonth(string $monthString)
-    {
-        try {
-            $month = Carbon::parse($monthString)->startOfMonth();
-        } catch (\Exception $e) {
-            $this->error("Invalid month format. Please use YYYY-MM (e.g., 2025-04).");
-            return;
-        }
-
-        $today = Carbon::today()->startOfDay();
-        $startDate = $month->copy();
-        $endDate = $month->copy()->endOfMonth();
-
-        // If the month is the current month, end processing at yesterday.
-        // This prevents processing incomplete shifts for the current day.
-        if ($month->isSameMonth($today)) {
-            $endDate = $today->copy()->subDay()->startOfDay();
-        }
-
-        // Ensure we don't try to process future dates or if the month is entirely in the future
-        if ($startDate->greaterThan($endDate)) {
-            $this->info("No dates to process for the month {$monthString} up to yesterday.");
-            return;
-        }
-
-        $this->info("Processing shifts for month {$monthString} from {$startDate->toDateString()} to {$endDate->toDateString()}.");
-
-        $currentProcessingDate = $startDate->copy();
-        while ($currentProcessingDate->lessThanOrEqualTo($endDate)) {
-            $this->processSingleDay($currentProcessingDate->copy());
-            $currentProcessingDate->addDay();
-        }
-
-        $this->info("Finished processing for the month {$monthString}.");
-    }
+    // --- Removed processSingleDay() and processMonth() methods ---
+    // Their logic is now incorporated directly into handle() or delegated to AttendanceProcessor.
 }

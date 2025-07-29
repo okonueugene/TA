@@ -9,11 +9,13 @@ use App\Utilities\ShiftAnomalyDetector;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+
 // For logging inside the service
 
 class AttendanceProcessor
 {
-    private $logger; // To allow logging via the calling command's info/warn methods
+    private $logger;                  // To allow logging via the calling command's info/warn methods
+    private $employeePunchCache = []; // Cache for employee punches across multiple days
 
 //     This module is the Core Business Logic Processor for a single employee's attendance. It orchestrates the detailed steps of identifying and recording shifts.
 
@@ -76,43 +78,169 @@ class AttendanceProcessor
      * @param Carbon $nextDay The day after the target date.
      * @return int The number of shifts processed for this employee.
      */
-    public function processEmployeeShifts(Employee $employee, Carbon $targetDate, Carbon $previousDay, Carbon $nextDay) : int
+    /**
+     * Process an employee's shifts for an entire date range (optimized for monthly processing)
+     * This method handles the batch operations and delegates daily processing.
+     */
+    public function processEmployeeShiftsForDateRange(Employee $employee, Carbon $startDate, Carbon $endDate) : int
     {
+        $totalShiftsProcessed = 0;
         $employeePin          = $employee->pin;
+
+        // Pre-fetch all punches for the entire date range + buffer days
+        $bufferStart = $startDate->copy()->subDay();
+        $bufferEnd   = $endDate->copy()->addDay();
+
+        $allEmployeePunches = $this->fetchEmployeePunches($employeePin, $bufferStart, $bufferEnd);
+        $filteredPunches    = AttendanceHelper::filterDuplicatePunches($allEmployeePunches, $employeePin, $this->logger);
+
+        // Cache the punches for this employee
+        $this->employeePunchCache[$employeePin] = $filteredPunches;
+
+        // Pre-delete all existing shifts in the date range for idempotence
+        $this->performBatchDeletion($employeePin, $startDate, $endDate);
+
+        // Track used attendance IDs across the entire processing period
+        $globalUsedAttendanceIds = new Collection();
+
+        // Process each day in the range
+        $currentDate = $startDate->copy();
+        while ($currentDate->lte($endDate)) {
+            $shiftsForDay = $this->processEmployeeShiftsForSingleDay(
+                $employee,
+                $currentDate->copy(),
+                $globalUsedAttendanceIds
+            );
+
+            $totalShiftsProcessed += $shiftsForDay;
+            $currentDate->addDay();
+        }
+
+        // Clear cache after processing
+        unset($this->employeePunchCache[$employeePin]);
+
+        return $totalShiftsProcessed;
+    }
+
+    /**
+     * Legacy method maintained for backward compatibility (single day processing)
+     * Now uses the optimized internal method.
+     */
+    public function processEmployeeShifts(Employee $employee, Carbon $targetDate, Carbon $previousDay, Carbon $nextDay): int
+    {
+        // For single-day processing, we'll use a simplified approach
+        $employeePin       = $employee->pin;
+        $usedAttendanceIds = new Collection();
+
+        // Enhanced deletion for single-day processing
+        $this->performEnhancedSingleDayDeletion($employeePin, $targetDate, $previousDay);
+
+        // Fetch punches for the 3-day window
+        $allEmployeePunches = $this->fetchEmployeePunches($employeePin, $previousDay, $nextDay);
+        $filteredPunches    = AttendanceHelper::filterDuplicatePunches($allEmployeePunches, $employeePin, $this->logger);
+
+        return $this->processSingleDayShifts($employee, $targetDate, $previousDay, $nextDay, $filteredPunches, $usedAttendanceIds);
+    }
+
+    /**
+     * Optimized single-day processing that uses cached punches when available
+     */
+    private function processEmployeeShiftsForSingleDay(Employee $employee, Carbon $targetDate, Collection &$globalUsedAttendanceIds): int
+    {
+        $employeePin = $employee->pin;
+        $previousDay = $targetDate->copy()->subDay();
+        $nextDay     = $targetDate->copy()->addDay();
+
+        // Use cached punches if available, otherwise fetch them
+        $filteredPunches = $this->employeePunchCache[$employeePin] ??
+        AttendanceHelper::filterDuplicatePunches(
+            $this->fetchEmployeePunches($employeePin, $previousDay, $nextDay),
+            $employeePin,
+            $this->logger
+        );
+
+        return $this->processSingleDayShifts($employee, $targetDate, $previousDay, $nextDay, $filteredPunches, $globalUsedAttendanceIds);
+    }
+
+    /**
+     * Core single-day shift processing logic
+     */
+    private function processSingleDayShifts(Employee $employee, Carbon $targetDate, Carbon $previousDay, Carbon $nextDay, Collection $filteredPunches, Collection &$usedAttendanceIds): int
+    {
         $shiftsProcessedCount = 0;
-        $usedAttendanceIds    = new Collection(); // To keep track of attendance records already used in a shift
 
-        // Delete existing shifts for this employee and shift_date to prevent duplicates on re-runs
-        EmployeeShift::where('employee_pin', $employeePin)
-            ->whereDate('shift_date', $targetDate->toDateString())
-            ->delete();
+        // Process night shifts ending on target day
+        $shiftsProcessedCount += $this->processNightShiftEndingOnTargetDay($employee, $targetDate, $previousDay, $filteredPunches, $usedAttendanceIds);
 
-        // Fetch all potentially relevant punches ONCE for this employee across the 3-day window.
-        $allEmployeePunches = Attendance::where(function ($q) use ($employeePin) {
-            $q->where('pin', '1' . $employeePin)  // Clock-in pin format
-                ->orWhere('pin', '2' . $employeePin); // Clock-out pin format
+        // Process shifts starting on target day
+        $shiftsProcessedCount += $this->processShiftsStartingOnTargetDay($employee, $targetDate, $nextDay, $filteredPunches, $usedAttendanceIds);
+
+        // Process isolated punches
+        $shiftsProcessedCount += $this->processIsolatedPunchesOnTargetDate($employee, $targetDate, $filteredPunches, $usedAttendanceIds);
+
+        return $shiftsProcessedCount;
+    }
+
+    /**
+     * Enhanced deletion for single-day processing to handle cross-day shifts
+     */
+    private function performEnhancedSingleDayDeletion(string $employeePin, Carbon $targetDate, Carbon $previousDay): void
+    {
+        $shiftsToDelete = EmployeeShift::where('employee_pin', $employeePin)
+            ->where(function ($query) use ($targetDate, $previousDay) {
+                // Delete shifts recorded on targetDate
+                $query->whereDate('shift_date', $targetDate->toDateString())
+                // Delete night shifts from previous day that end on targetDate
+                    ->orWhere(function ($subQuery) use ($previousDay, $targetDate) {
+                        $subQuery->whereDate('shift_date', $previousDay->toDateString())
+                            ->where('shift_type', 'night')
+                            ->whereDate('clock_out_time', $targetDate->toDateString());
+                    });
+            });
+
+        $deletedCount = $shiftsToDelete->count();
+        if ($deletedCount > 0) {
+            $shiftsToDelete->delete();
+            ($this->logger)('info', "Deleted {$deletedCount} existing shifts for employee {$employeePin} on {$targetDate->toDateString()} for idempotence.");
+        }
+    }
+
+    /**
+     * Batch deletion for date range processing
+     */
+    private function performBatchDeletion(string $employeePin, Carbon $startDate, Carbon $endDate): void
+    {
+        $bufferStart = $startDate->copy()->subDay(); // Include previous day for night shifts
+
+        $deletedCount = EmployeeShift::where('employee_pin', $employeePin)
+            ->whereBetween('shift_date', [$bufferStart->toDateString(), $endDate->toDateString()])
+            ->count();
+
+        if ($deletedCount > 0) {
+            EmployeeShift::where('employee_pin', $employeePin)
+                ->whereBetween('shift_date', [$bufferStart->toDateString(), $endDate->toDateString()])
+                ->delete();
+
+            ($this->logger)('info', "Batch deleted {$deletedCount} existing shifts for employee {$employeePin} from {$startDate->toDateString()} to {$endDate->toDateString()}.");
+        }
+    }
+
+    /**
+     * Centralized punch fetching with proper caching
+     */
+    private function fetchEmployeePunches(string $employeePin, Carbon $startDate, Carbon $endDate): Collection
+    {
+        return Attendance::where(function ($q) use ($employeePin) {
+            $q->where('pin', '1' . $employeePin)
+                ->orWhere('pin', '2' . $employeePin);
         })
-            ->whereBetween('datetime', [$previousDay->startOfDay(), $nextDay->endOfDay()])
+            ->whereBetween('datetime', [$startDate->startOfDay(), $endDate->endOfDay()])
             ->orderBy('datetime')
             ->get()
             ->map(function ($record) {
                 $record->datetime = Carbon::parse($record->datetime);
                 return $record;
             });
-
-        // 1. Pre-filter all raw punches to remove duplicates (same type within a close window).
-        $filteredPunches = AttendanceHelper::filterDuplicatePunches($allEmployeePunches, $employeePin, $this->logger);
-
-        // 2. Process Night Shifts: Look for shifts that started on the PREVIOUS DAY and ended on the TARGET DATE.
-        $shiftsProcessedCount += $this->processNightShiftEndingOnTargetDay($employee, $targetDate, $previousDay, $filteredPunches, $usedAttendanceIds);
-
-        // 3. Process Shifts Starting on Target Date (could be Day or Night shifts).
-        $shiftsProcessedCount += $this->processShiftsStartingOnTargetDay($employee, $targetDate, $nextDay, $filteredPunches, $usedAttendanceIds);
-
-        // 4. Process any remaining isolated punches on the Target Date.
-        $shiftsProcessedCount += $this->processIsolatedPunchesOnTargetDate($employee, $targetDate, $filteredPunches, $usedAttendanceIds);
-
-        return $shiftsProcessedCount;
     }
 
     /**
