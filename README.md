@@ -1,14 +1,4 @@
-# LS
-
-That's an important detail. I'll integrate the new configuration into the `README.md` to ensure it's fully up-to-date and provides developers with all the necessary information.
-
-Here is the revised `README.md` in Markdown, including the new `TAD` configuration section.
-
------
-
-### README.md
-
-# Attendance Shift Processor
+# Time Attendance Processor ZK-Time And Attendance
 
 This project provides a robust and flexible solution for processing raw attendance data (clock-in/out punches) and transforming it into structured employee shift records. The system is designed to handle complex shift patterns, including cross-day night shifts and specialized overtime rules for different employee groups, such as the Blowmolding department.
 
