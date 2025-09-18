@@ -504,7 +504,7 @@ class AttendanceProcessor
         $clockOutsOnShiftOutDayForErrorCheck = $allEmployeePunches->filter(fn($p) => str_starts_with($p->pin, '2') && $p->datetime->isSameDay($clockOutRecord->datetime));
 
         return $this->processCompleteShift(
-            $employee->pin,
+            $employee,
             $shiftRecordDate,
             $clockInRecord,
             $clockOutRecord,
@@ -542,7 +542,7 @@ class AttendanceProcessor
      * @return int Number of shifts processed (0 or 1).
      */
     private function processCompleteShift(
-        $employeePin,
+        $employee,
         Carbon $shiftRecordDate,
         $firstClockIn,
         $lastClockOut,
@@ -557,6 +557,7 @@ class AttendanceProcessor
         bool $isHumanErrorOverride = false,
         string $anomalyNote = ''
     ): int {
+        $employeePin  = $employee->pin;
         $clockInTime  = $firstClockIn->datetime;
         $clockOutTime = $lastClockOut->datetime;
         $shiftsCount  = 0;
@@ -600,18 +601,54 @@ class AttendanceProcessor
         $hasHumanError = ShiftAnomalyDetector::detectHumanError($relevantClockInsForError, $relevantClockOutsForError);
         $hoursWorked   = $clockOutTime->floatDiffInHours($clockInTime); // Accurate float difference
 
-        $shiftTypeDetermined = 'unknown';
-        if ($isWeekendBasedOnActualStart || $isHolidayBasedOnActualStart) {
-            $shiftTypeDetermined = 'overtime_shift'; // Treated as OT if starting on a weekend/holiday
+        // --- Modified Shift Type Determination Logic for Blowmolding Employees ---
+        if ($employee->is_blowmolding) {
+            // For blowmolding employees, always determine shift type as day or night,
+            // as overtime is now based on the total shifts in the week, not on weekend/holiday start.
+            $shiftTypeDetermined = AttendanceHelper::determineShiftType($clockInTime, $clockOutTime, $shiftActualStartDate);
+        } elseif ($isWeekendBasedOnActualStart || $isHolidayBasedOnActualStart) {
+            // For non-blowmolding employees, keep the original logic.
+            $shiftTypeDetermined = 'overtime_shift';
         } else {
             $shiftTypeDetermined = AttendanceHelper::determineShiftType($clockInTime, $clockOutTime, $shiftActualStartDate);
         }
+        // --- END Modified Shift Type Determination ---
+
+        // --- Enhanced Logic for Blowmolding Shift Patterns (Now for any shift, not just night) ---
+        $applyBlowMoldingSundayException = false;
+        // The rule is now triggered for any complete shift ending on a Sunday for blowmolding employees.
+        if ($employee->is_blowmolding && $clockOutTime->isSunday()) {
+                                                                                     // Determine the week (Sunday to Saturday) based on the shift's start date
+            $weekStart = $shiftActualStartDate->copy()->startOfWeek(Carbon::SUNDAY); // Week starts on Sunday
+            $weekEnd   = $weekStart->copy()->endOfWeek(Carbon::SATURDAY);            // Week ends on Saturday
+
+            // Count *all* completed shifts in the week before the current one.
+            // We assume this method is called once per shift, and the current shift is not yet in the DB.
+            $completedShiftsInWeek = EmployeeShift::where('employee_pin', $employee->pin)
+                ->whereBetween('shift_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+                ->where('is_complete', true)
+                ->count();
+
+            // Add the current shift being processed to the count.
+            $totalShiftsInWeek = $completedShiftsInWeek + 1;
+
+                                          // If the shift ends on Sunday, check the total number of shifts in the week
+            if ($totalShiftsInWeek < 4) { // e.g., 3-shift week
+                $applyBlowMoldingSundayException = true;
+                         // Logging can be re-added here if desired.
+            } else { // e.g., 4 or more shifts
+                         // Logging can be re-added here if desired.
+            }
+        }
+        // --- END Enhanced Logic ---
 
         $latenessMinutes = AttendanceHelper::calculateLateness($clockInTime, $shiftTypeDetermined, $shiftActualStartDate, $isPrevDayNightShift);
 
         list($overtime1_5x, $overtime2_0x, $regularHours) = AttendanceHelper::calculateOvertimeAndHours(
             $hoursWorked, $clockInTime, $clockOutTime, $shiftActualStartDate, $shiftTypeDetermined,
-            $isSaturdayBasedOnActualStart, $isSundayOrHolidayBasedOnActualStart
+            $isSaturdayBasedOnActualStart, $isSundayOrHolidayBasedOnActualStart,
+            $employee->is_blowmolding,       // MODIFIED: Pass blowmolding status
+            $applyBlowMoldingSundayException // MODIFIED: Pass exception flag
         );
 
         $notes = AttendanceHelper::generateNotes(

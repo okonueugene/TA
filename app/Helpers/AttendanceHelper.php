@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Helpers;
 
 use App\Models\Holiday;
@@ -38,23 +37,23 @@ class AttendanceHelper
 
 // Determining which punches form a shift (that's AttendanceProcessor's job).
     // --- Shift Definitions (Constants for easy configuration) ---
-    const DAY_SHIFT_START_HOUR = 7;
+    const DAY_SHIFT_START_HOUR   = 7;
     const DAY_SHIFT_START_MINUTE = 0;
-    const DAY_SHIFT_END_HOUR = 18;
-    const DAY_SHIFT_END_MINUTE = 0;
+    const DAY_SHIFT_END_HOUR     = 18;
+    const DAY_SHIFT_END_MINUTE   = 0;
 
-    const NIGHT_SHIFT_START_HOUR = 18;
+    const NIGHT_SHIFT_START_HOUR   = 18;
     const NIGHT_SHIFT_START_MINUTE = 0;
-    const NIGHT_SHIFT_END_HOUR = 7;
-    const NIGHT_SHIFT_END_MINUTE = 0;
+    const NIGHT_SHIFT_END_HOUR     = 7;
+    const NIGHT_SHIFT_END_MINUTE   = 0;
 
-    // Buffers/thresholds for identifying shift boundaries and duplicates
-    const PREV_DAY_NIGHT_IN_AFTER_HOUR = 17; // Clock-in on previous day after this hour is potential night shift
-    const TARGET_DAY_NIGHT_OUT_BEFORE_HOUR = 8; // Clock-out on target day before this hour is potential night shift end
+                                                 // Buffers/thresholds for identifying shift boundaries and duplicates
+    const PREV_DAY_NIGHT_IN_AFTER_HOUR     = 17; // Clock-in on previous day after this hour is potential night shift
+    const TARGET_DAY_NIGHT_OUT_BEFORE_HOUR = 8;  // Clock-out on target day before this hour is potential night shift end
     const NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR = 10; // For night shifts, look for clock-out up to this hour on the next day
-    const DAY_SHIFT_START_BUFFER_MINUTES = 59; // Allow clock-in up to this many minutes before standard day shift start
-    const DUPLICATE_PUNCH_WINDOW_MINUTES = 10; // Global buffer for considering punches of the same type as duplicates
-    const MIN_HOURS_FOR_SAME_PIN_SHIFT = 4; // Threshold for detecting large gaps between same-type punches (human error)
+    const DAY_SHIFT_START_BUFFER_MINUTES   = 59; // Allow clock-in up to this many minutes before standard day shift start
+    const DUPLICATE_PUNCH_WINDOW_MINUTES   = 10; // Global buffer for considering punches of the same type as duplicates
+    const MIN_HOURS_FOR_SAME_PIN_SHIFT     = 4;  // Threshold for detecting large gaps between same-type punches (human error)
 
     /**
      * Filters out duplicate consecutive punches of the same type (e.g., multiple clock-ins in a short period).
@@ -66,14 +65,14 @@ class AttendanceHelper
      * @param callable|null $logger A callable function for logging messages (e.g., $this->info or $this->warn).
      * @return Collection Cleaned collection of punches.
      */
-    public static function filterDuplicatePunches(Collection $allPunches, string $employeePin, ?callable $logger = null): Collection
+    public static function filterDuplicatePunches(Collection $allPunches, string $employeePin,  ? callable $logger = null) : Collection
     {
         $filtered = new Collection();
-        $lastIn = null;
-        $lastOut = null;
+        $lastIn   = null;
+        $lastOut  = null;
 
         foreach ($allPunches as $punch) {
-            $isClockIn = str_starts_with($punch->pin, '1');
+            $isClockIn  = str_starts_with($punch->pin, '1');
             $isClockOut = str_starts_with($punch->pin, '2');
 
             if ($isClockIn) {
@@ -84,14 +83,14 @@ class AttendanceHelper
                     continue; // Skip adding this punch
                 }
                 $filtered->push($punch);
-                $lastIn = $punch;
+                $lastIn  = $punch;
                 $lastOut = null; // Reset lastOut as an IN punch just occurred, starting a new potential sequence
             } elseif ($isClockOut) {
                 if ($lastOut && $punch->datetime->diffInMinutes($lastOut->datetime) <= self::DUPLICATE_PUNCH_WINDOW_MINUTES) {
                     if ($logger) {
                         $logger("info", "Replacing previous clock-out [ID:{$lastOut->id}] with later clock-out [ID:{$punch->id}] for PIN {$employeePin} at {$punch->datetime->toDateTimeString()}.");
                     }
-                    $filtered->pop(); // Remove the previous 'lastOut' from the filtered collection
+                    $filtered->pop();        // Remove the previous 'lastOut' from the filtered collection
                     $filtered->push($punch); // Add the current (later) 'out'
                     $lastOut = $punch;
                 } else {
@@ -104,7 +103,7 @@ class AttendanceHelper
                     $logger("warn", "Unexpected punch PIN format for {$employeePin}: {$punch->pin} at {$punch->datetime->toDateTimeString()}. Adding without type assumption.");
                 }
                 $filtered->push($punch);
-                $lastIn = null;
+                $lastIn  = null;
                 $lastOut = null;
             }
         }
@@ -130,15 +129,15 @@ class AttendanceHelper
             }
 
             // Check if the punch falls on the specified day
-            if (!$punch->datetime->isSameDay($day)) {
+            if (! $punch->datetime->isSameDay($day)) {
                 return false;
             }
 
             // Check punch type if specified ('in' for '1XXXX', 'out' for '2XXXX')
-            if ($type === 'in' && !str_starts_with($punch->pin, '1')) {
+            if ($type === 'in' && ! str_starts_with($punch->pin, '1')) {
                 return false;
             }
-            if ($type === 'out' && !str_starts_with($punch->pin, '2')) {
+            if ($type === 'out' && ! str_starts_with($punch->pin, '2')) {
                 return false;
             }
 
@@ -160,7 +159,7 @@ class AttendanceHelper
         $allPunchesWithinShift = $allEmployeePunches->filter(function ($punch) use ($startTime, $endTime) {
             return $punch->datetime->gte($startTime) && $punch->datetime->lte($endTime);
         });
-        $allPunchesWithinShift->pluck('id')->each(fn ($id) => $usedAttendanceIds->push($id));
+        $allPunchesWithinShift->pluck('id')->each(fn($id) => $usedAttendanceIds->push($id));
         $usedAttendanceIds = $usedAttendanceIds->unique()->values(); // Ensure unique IDs and reset keys
     }
 
@@ -175,17 +174,17 @@ class AttendanceHelper
      */
     public static function determineShiftType(Carbon $clockInTime, Carbon $clockOutTime, Carbon $shiftActualStartDate): string
     {
-        // Define standard shift boundaries for the actual shift start date
-        $coreDayShiftStart = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_START_HOUR, self::DAY_SHIFT_START_MINUTE);   // 07:00
+                                                                                                                                     // Define standard shift boundaries for the actual shift start date
+        $coreDayShiftStart   = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_START_HOUR, self::DAY_SHIFT_START_MINUTE);     // 07:00
         $coreNightShiftStart = $shiftActualStartDate->copy()->setTime(self::NIGHT_SHIFT_START_HOUR, self::NIGHT_SHIFT_START_MINUTE); // 18:00
 
-        // Define buffered start times to account for early clock-ins within reasonable limits
-        $bufferedDayShiftStart = $coreDayShiftStart->copy()->subMinutes(self::DAY_SHIFT_START_BUFFER_MINUTES); // e.g., 06:01 if buffer is 59 min
+                                                                                                                   // Define buffered start times to account for early clock-ins within reasonable limits
+        $bufferedDayShiftStart   = $coreDayShiftStart->copy()->subMinutes(self::DAY_SHIFT_START_BUFFER_MINUTES);   // e.g., 06:01 if buffer is 59 min
         $bufferedNightShiftStart = $coreNightShiftStart->copy()->subMinutes(self::DAY_SHIFT_START_BUFFER_MINUTES); // e.g., 17:01
 
         // Define expected night shift end time on the *next* day, plus a lookahead buffer
         $expectedNightShiftEndNextDay = $shiftActualStartDate->copy()->addDay()->setTime(self::NIGHT_SHIFT_END_HOUR, self::NIGHT_SHIFT_END_MINUTE);
-        $bufferedNightShiftEnd = $expectedNightShiftEndNextDay->copy()->addHours(self::NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR - self::NIGHT_SHIFT_END_HOUR); // e.g., extends to 10:00 AM next day
+        $bufferedNightShiftEnd        = $expectedNightShiftEndNextDay->copy()->addHours(self::NEXT_DAY_CLOCKOUT_LOOKAHEAD_HOUR - self::NIGHT_SHIFT_END_HOUR); // e.g., extends to 10:00 AM next day
 
         // Logic for same-day shifts
         if ($clockInTime->isSameDay($clockOutTime)) {
@@ -194,9 +193,9 @@ class AttendanceHelper
                 return 'day';
             }
             return 'irregular_sameday'; // Any other same-day shift (e.g., very late start, very early end)
-        } else { // Logic for cross-day shifts
-            // If clock-in falls within night shift window (considering buffer) AND
-            // clock-out falls within the night shift end window on the next day
+        } else {                    // Logic for cross-day shifts
+                                        // If clock-in falls within night shift window (considering buffer) AND
+                                        // clock-out falls within the night shift end window on the next day
             if ($clockInTime->greaterThanOrEqualTo($bufferedNightShiftStart) && $clockOutTime->lessThanOrEqualTo($bufferedNightShiftEnd)) {
                 return 'night';
             }
@@ -229,7 +228,7 @@ class AttendanceHelper
             // For night shifts, the expected start depends on whether it's a "previous day" night in
             // (meaning it's an overnight shift, usually clocking in late afternoon/evening)
             // or a "current day" night in (starting within the night shift block).
-            $expectedHour = $isPrevDayNightShift ? self::PREV_DAY_NIGHT_IN_AFTER_HOUR : self::NIGHT_SHIFT_START_HOUR;
+            $expectedHour  = $isPrevDayNightShift ? self::PREV_DAY_NIGHT_IN_AFTER_HOUR : self::NIGHT_SHIFT_START_HOUR;
             $expectedStart = $shiftActualStartDate->copy()->setTime($expectedHour, 0); // Assuming 0 minutes for simplicity if PREV_DAY_NIGHT_IN_AFTER_HOUR is just an hour threshold
         } else {
             return 0; // No lateness for irregular shifts or incomplete records
@@ -241,17 +240,17 @@ class AttendanceHelper
 
     /**
      * Calculates regular hours and overtime hours (1.5x, 2.0x) for a shift.
-     * This method processes hours minute by minute for precise allocation across different pay rates
-     * and calendar days.
      *
-     * @param float $totalHoursWorkedInitially The total duration of the shift as a float.
-     * @param Carbon $clockInTime The shift's clock-in time.
-     * @param Carbon $clockOutTime The shift's clock-out time.
-     * @param Carbon $shiftActualStartDate The calendar date the shift started.
-     * @param string $shiftType The determined type of the shift.
-     * @param bool $isSaturdayBasedOnActualStart True if the shift started on a Saturday.
-     * @param bool $isSundayOrHolidayBasedOnActualStart True if the shift started on a Sunday or holiday.
-     * @return array An array containing [overtime1_5x, overtime2_0x, regularHours].
+     * @param float $totalHoursWorkedInitially
+     * @param Carbon $clockInTime
+     * @param Carbon $clockOutTime
+     * @param Carbon $shiftActualStartDate
+     * @param string $shiftType
+     * @param bool $isSaturdayBasedOnActualStart
+     * @param bool $isSundayOrHolidayBasedOnActualStart
+     * @param bool $isBlowMoldingEmployee
+     * @param bool $applySundayException
+     * @return array [overtime1_5x, overtime2_0x, regularHours]
      */
     public static function calculateOvertimeAndHours(
         float $totalHoursWorkedInitially,
@@ -260,7 +259,9 @@ class AttendanceHelper
         Carbon $shiftActualStartDate,
         string $shiftType,
         bool $isSaturdayBasedOnActualStart,
-        bool $isSundayOrHolidayBasedOnActualStart
+        bool $isSundayOrHolidayBasedOnActualStart,
+        bool $isBlowMoldingEmployee = false,
+        bool $applySundayException = false
     ): array {
         if ($totalHoursWorkedInitially <= 0) {
             return [0.0, 0.0, 0.0];
@@ -271,59 +272,56 @@ class AttendanceHelper
         $regularHours = 0.0;
 
         $currentDt = $clockInTime->copy();
-        $calendarDay = $currentDt->copy()->startOfDay(); // Initialize current calendar day for the segment
 
         while ($currentDt < $clockOutTime) {
-            $segmentEndDt = $currentDt->copy()->addMinute(); // Process in minute segments
+            $segmentEndDt = $currentDt->copy()->addMinute();
             if ($segmentEndDt > $clockOutTime) {
-                $segmentEndDt = $clockOutTime->copy(); // Ensure last segment doesn't overshoot
+                $segmentEndDt = $clockOutTime->copy();
             }
 
             $segmentDurationHours = $segmentEndDt->diffInSeconds($currentDt) / 3600.0;
-            if ($segmentDurationHours <= 0) { // Should prevent infinite loops or issues with identical timestamps
+            if ($segmentDurationHours <= 0) {
                 $currentDt = $segmentEndDt;
                 continue;
             }
 
-            // Update calendarDay only when the day changes for the current segment
-            $newCalendarDay = $currentDt->copy()->startOfDay();
-            if (!$calendarDay->equalTo($newCalendarDay)) {
-                $calendarDay = $newCalendarDay;
+            $calendarDay               = $currentDt->copy()->startOfDay();
+            $isHolidaySegment          = self::isHoliday($calendarDay);
+            $hourRateAppliedToOvertime = false;
+
+            // --- NEW: Blowmolding F-S-S Sunday Exception ---
+            if ($isBlowMoldingEmployee && $applySundayException && $calendarDay->isSunday()) {
+                $regularHours += $segmentDurationHours;
+                $currentDt = $segmentEndDt;
+                continue;
             }
 
-            $isHolidaySegment = self::isHoliday($calendarDay);
-            $hourRateAppliedToOvertime = false; // Flag to ensure a segment is only classified once
-
-            // Priority 1: 2.0x Overtime for Sunday or Holiday hours (on the actual segment day)
+            // Priority 1: 2.0x for Sunday or Holiday
             if ($calendarDay->isSunday() || $isHolidaySegment) {
                 $overtime2_0x += $segmentDurationHours;
                 $hourRateAppliedToOvertime = true;
             }
-            // Priority 2: 1.5x Overtime for Saturday hours (on the actual segment day), if not already 2.0x
-            elseif ($calendarDay->isSaturday()) { // No need to check !$isHolidaySegment here due to prior if
+
+            // Priority 2: 1.5x for Saturday (non-blowmolding)
+            elseif (! $isBlowMoldingEmployee && $calendarDay->isSaturday()) {
                 $overtime1_5x += $segmentDurationHours;
                 $hourRateAppliedToOvertime = true;
             }
 
-            // If not already applied to overtime based on the calendar day type (i.e., it's a weekday segment)
-            if (!$hourRateAppliedToOvertime) {
-                $isRegularSegmentHour = true; // Assume regular unless it's specific shift overtime
+            // Priority 3: Shift-specific overtime (if not already counted)
+            if (! $hourRateAppliedToOvertime) {
+                $isRegularSegmentHour = true;
 
-                // Day shift specific overtime: hours worked after standard day shift end time on the start day
                 if ($shiftType === 'day' && $calendarDay->isSameDay($shiftActualStartDate)) {
-                    $dayShiftStandardEnd = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_END_HOUR, self::DAY_SHIFT_END_MINUTE);
-                    if ($currentDt->greaterThanOrEqualTo($dayShiftStandardEnd)) {
+                    $dayShiftEnd = $shiftActualStartDate->copy()->setTime(self::DAY_SHIFT_END_HOUR, self::DAY_SHIFT_END_MINUTE);
+                    if ($currentDt->greaterThanOrEqualTo($dayShiftEnd)) {
                         $overtime1_5x += $segmentDurationHours;
                         $isRegularSegmentHour = false;
                     }
-                }
-                // Night shift specific overtime: hours worked after standard night shift end time (on the next day)
-                elseif ($shiftType === 'night') {
-                    $nightShiftStandardEndDay = $shiftActualStartDate->copy()->addDay(); // The calendar day the night shift is *expected* to end
-                    $nightShiftStandardEndTime = $nightShiftStandardEndDay->copy()->setTime(self::NIGHT_SHIFT_END_HOUR, self::NIGHT_SHIFT_END_MINUTE);
-
-                    // If segment falls on the night shift's expected end day AND after standard night shift end time
-                    if ($calendarDay->isSameDay($nightShiftStandardEndDay) && $currentDt->greaterThanOrEqualTo($nightShiftStandardEndTime)) {
+                } elseif ($shiftType === 'night') {
+                    $nightShiftEndDay = $shiftActualStartDate->copy()->addDay();
+                    $nightShiftEnd    = $nightShiftEndDay->copy()->setTime(self::NIGHT_SHIFT_END_HOUR, self::NIGHT_SHIFT_END_MINUTE);
+                    if ($calendarDay->isSameDay($nightShiftEndDay) && $currentDt->greaterThanOrEqualTo($nightShiftEnd)) {
                         $overtime1_5x += $segmentDurationHours;
                         $isRegularSegmentHour = false;
                     }
@@ -333,19 +331,17 @@ class AttendanceHelper
                     $regularHours += $segmentDurationHours;
                 }
             }
+
             $currentDt = $segmentEndDt;
         }
 
-        // Final reconciliation: Recalculate regular hours to ensure sum of parts equals the total initially calculated duration.
-        // This helps mitigate floating-point inaccuracies and ensures consistency.
+        // Reconciliation
         $calculatedTotalOvertime = $overtime1_5x + $overtime2_0x;
-        $derivedRegularHours = $totalHoursWorkedInitially - $calculatedTotalOvertime;
-
-        // Ensure regular hours are not negative due to floating-point math, and round precisely.
-        $regularHours = max(0, round($derivedRegularHours, 2));
+        $derivedRegularHours     = $totalHoursWorkedInitially - $calculatedTotalOvertime;
+        $regularHours            = max(0, round($derivedRegularHours, 2));
 
         return [
-            round($overtime1_5x, 2), // Round overtime values for storage
+            round($overtime1_5x, 2),
             round($overtime2_0x, 2),
             $regularHours,
         ];
@@ -380,7 +376,7 @@ class AttendanceHelper
         string $anomalyNote = ''
     ): string {
         $notes = [];
-        if (!empty($anomalyNote)) {
+        if (! empty($anomalyNote)) {
             $notes[] = $anomalyNote;
         }
         $notes[] = "Type: " . ucfirst(str_replace('_', ' ', $shiftType)); // e.g., "Day", "Night", "Irregular Sameday"
@@ -416,7 +412,6 @@ class AttendanceHelper
         return implode('; ', $notes); // Use semicolon and space for better readability
     }
 
-
     /**
      * Checks if a given date is a holiday.
      * Caches results in a static array for performance across multiple calls within the same command execution.
@@ -427,7 +422,7 @@ class AttendanceHelper
     public static function isHoliday(Carbon $date): bool
     {
         static $holidaysCache = [];
-        $dateString = $date->toDateString();
+        $dateString           = $date->toDateString();
 
         if (isset($holidaysCache[$dateString])) {
             return $holidaysCache[$dateString];
@@ -436,8 +431,8 @@ class AttendanceHelper
         // Assuming Holiday model has 'start_date' and 'description' columns
         // and 'Public holiday' in description is the indicator.
         $isActualHoliday = Holiday::whereDate('start_date', $date->toDateString())
-                                ->where('description', 'LIKE', '%Public holiday%')
-                                ->exists();
+            ->where('description', 'LIKE', '%Public holiday%')
+            ->exists();
         $holidaysCache[$dateString] = $isActualHoliday;
 
         return $isActualHoliday;

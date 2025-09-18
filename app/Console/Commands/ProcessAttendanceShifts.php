@@ -1,46 +1,35 @@
 <?php
-
 namespace App\Console\Commands;
 
-use App\Models\Attendance; // Still used for potentialPins identification
+use App\Models\Attendance;
 use App\Models\Employee;
 use App\Services\AttendanceProcessor;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache; // Import Cache facade for locking
+use Illuminate\Support\Facades\Log;
 
 class ProcessAttendanceShifts extends Command
 {
-//     This module acts as the Orchestrator and User Interface for the attendance processing logic.
+    // This module acts as the Orchestrator and User Interface for the attendance processing logic.
 
-// Handles:
+    // Handles:
+    // - Argument Parsing: Reads command-line arguments (e.g., date, --month).
+    // - Date Range Determination: Determines the specific date(s) or month to process based on user input.
+    // - High-Level Flow Control: Manages the overall execution flow (single day vs. month processing).
+    // - Employee Identification: Queries the database to find unique employee PINs that have attendance activity within the relevant date window.
+    // - Employee Batching/Chunking: Manages iterating through employees, optionally in chunks, to optimize memory usage.
+    // - Transaction Management: Wraps the entire processing of an employee's shifts for a range in a database transaction to ensure atomicity (all or nothing).
+    // - Logging Interface: Provides the console output ($this->info, $this->warn, $this->error) and passes this logging capability down to the AttendanceProcessor service.
+    // - Error Handling (Top-Level): Catches and reports invalid month formats.
 
-// Argument Parsing: Reads command-line arguments (e.g., date, --month).
+    // Does NOT Handle:
+    // - Detailed shift calculation.
+    // - Specific punch filtering logic.
+    // - Database interactions for individual shift records (delegates to AttendanceProcessor).
+    // - Business logic for shift types or overtime.
 
-// Date Range Determination: Determines the specific date(s) or month to process based on user input.
-
-// High-Level Flow Control: Manages the overall execution flow (single day vs. month processing).
-
-// Employee Identification: Queries the database to find unique employee PINs that have attendance activity within the relevant date window.
-
-// Employee Batching/Chunking: Manages iterating through employees, optionally in chunks, to optimize memory usage.
-
-// Transaction Management: Wraps the entire processing of a day's shifts in a database transaction to ensure atomicity (all or nothing).
-
-// Logging Interface: Provides the console output ($this->info, $this->warn, $this->error) and passes this logging capability down to the AttendanceProcessor service.
-
-// Error Handling (Top-Level): Catches and reports invalid month formats.
-
-// Does NOT Handle:
-
-// Detailed shift calculation.
-
-// Specific punch filtering logic.
-
-// Database interactions for individual shift records (delegates to AttendanceProcessor).
-
-// Business logic for shift types or overtime.
     /**
      * The name and signature of the console command.
      *
@@ -49,7 +38,7 @@ class ProcessAttendanceShifts extends Command
     protected $signature = 'process:shifts
                             {date? : The specific date to process (YYYY-MM-DD).}
                             {--month= : Process shifts for a whole month (YYYY-MM).}
-                            {--employee= : Process a specific employee by PIN.}'; // Added --employee option
+                            {--employee= : Process a specific employee by PIN.}';
 
     /**
      * The console command description.
@@ -67,7 +56,7 @@ class ProcessAttendanceShifts extends Command
     {
         $specificDate = $this->argument('date');
         $monthOption  = $this->option('month');
-        $employeePin  = $this->option('employee'); // Get the employee PIN option
+        $employeePin  = $this->option('employee');
 
         $startDate = null;
         $endDate   = null;
@@ -111,28 +100,34 @@ class ProcessAttendanceShifts extends Command
                 return Command::FAILURE;
             }
         } else {
-            // If no specific employee, get all active employees (or filtered by attendance activity in range)
-            // To be truly robust, you'd fetch pins with activity in the extended range first.
+            // Fetch potential PINs from attendance records within an extended window
+            // This extended window ensures we catch employees whose shifts might cross into the main processing period.
+            // Adjust subDays/addDays as per your longest possible cross-day shift or required punch history.
             $activityStartDate = $startDate->copy()->subDays(2)->startOfDay();
             $activityEndDate   = $endDate->copy()->addDays(2)->endOfDay();
-            $potentialPins = Attendance::whereBetween('datetime', [$activityStartDate, $activityEndDate])
+
+            $potentialRawPins = Attendance::whereBetween('datetime', [$activityStartDate, $activityEndDate])
                 ->distinct()
-                ->pluck('pin')
+                ->pluck('pin');
+
+            // Normalize pins (remove leading 1 or 2 from clock-in/out pins, e.g., '1106' -> '106')
+            $normalizedPins = $potentialRawPins
                 ->map(fn($pin) => preg_replace('/^[12]/', '', $pin))
-                ->filter(fn($pin) => !empty($pin))
+                ->filter(fn($pin) => ! empty($pin))
                 ->unique()
                 ->values();
 
-            if ($potentialPins->isEmpty()) {
-                $this->info("No employee activity found in the specified range. Nothing to process.");
+            if ($normalizedPins->isEmpty()) {
+                $this->info("No employee activity found in the specified range ({$activityStartDate->toDateString()} to {$activityEndDate->toDateString()}). Nothing to process.");
                 return Command::SUCCESS;
             }
-            $employees = Employee::whereIn('pin', $potentialPins)->get();
+            // Fetch Employee models based on normalized pins
+            $employees = Employee::whereIn('pin', $normalizedPins)->get();
             $this->info("Found {$employees->count()} employees with activity in the range.");
         }
 
         if ($employees->isEmpty()) {
-            $this->info('No employees found to process.');
+            $this->info('No employees found to process based on filtered activity.');
             return Command::SUCCESS;
         }
 
@@ -140,36 +135,54 @@ class ProcessAttendanceShifts extends Command
         $totalShiftsProcessed = 0;
         foreach ($employees as $employee) {
             // Create a unique lock key for this employee and processing period
+            // Using date strings makes the lock key unique per employee per defined period.
             $lockKey = "attendance_process_lock_{$employee->pin}_{$startDate->toDateString()}_{$endDate->toDateString()}";
-            $lock = Cache::lock($lockKey, 300); // Acquire a 5-minute lock
+            $lock    = Cache::lock($lockKey, 300); // Acquire a 5-minute lock (adjust timeout as needed)
 
             if ($lock->get()) { // Attempt to acquire the lock
                 try {
                     $this->comment("--- Processing shifts for employee: {$employee->name} (PIN: {$employee->pin}) ---");
 
-                    // Initialize AttendanceProcessor for this employee (fresh $usedAttendanceIds)
+                    // Initialize AttendanceProcessor with the console logger
                     $attendanceProcessor = new AttendanceProcessor(function ($level, $message) {
-                        if ($level === 'info') $this->info($message);
-                        elseif ($level === 'warn') $this->warn($message);
-                        elseif ($level === 'error') $this->error($message);
+                        if ($level === 'info') {
+                            $this->info($message);
+                        } elseif ($level === 'warn') {
+                            $this->warn($message);
+                        } elseif ($level === 'error') {
+                            $this->error($message);
+                        }
+
                     });
+
+                    // Wrap the processing for each employee in a database transaction.
+                    // This ensures atomicity: all shifts for this employee in this range are saved, or none are if an error occurs.
+                    DB::beginTransaction();
 
                     // *** CORE CALL TO THE BATCH PROCESSING METHOD ***
                     $shiftsProcessedForEmployee = $attendanceProcessor->processEmployeeShiftsForDateRange(
-                        $employee,
+                        $employee,  // Pass the Employee model (not just pin) for context in the service
                         $startDate, // Start of the overall processing range
                         $endDate    // End of the overall processing range
                     );
-                    $totalShiftsProcessed += $shiftsProcessedForEmployee;
 
+                    DB::commit(); // Commit transaction if successful
+
+                    $totalShiftsProcessed += $shiftsProcessedForEmployee;
                     $this->info("Completed processing for {$employee->name}. Total shifts recorded: {$shiftsProcessedForEmployee}.");
 
                 } catch (\Exception $e) {
+                    DB::rollBack(); // Rollback transaction on error
                     $this->error("Error processing shifts for employee {$employee->name} (PIN: {$employee->pin}): " . $e->getMessage());
                     // Log the full exception for debugging
-                    Log::error("Attendance Processing Error for PIN {$employee->pin}: " . $e->getMessage(), ['exception' => $e, 'employee_pin' => $employee->pin, 'start_date' => $startDate->toDateString(), 'end_date' => $endDate->toDateString()]);
+                    Log::error("Attendance Processing Error for PIN {$employee->pin}: " . $e->getMessage(), [
+                        'exception'    => $e,
+                        'employee_pin' => $employee->pin,
+                        'start_date'   => $startDate->toDateString(),
+                        'end_date'     => $endDate->toDateString(),
+                    ]);
                 } finally {
-                    $lock->release(); // Always release the lock
+                    $lock->release(); // Always release the lock, even if an error occurred
                 }
             } else {
                 $this->warn("Skipping employee {$employee->name} (PIN: {$employee->pin}): another process is already running for this employee and period.");
@@ -179,7 +192,4 @@ class ProcessAttendanceShifts extends Command
         $this->info("Attendance shifts processing completed. Total shifts processed in this run: {$totalShiftsProcessed}.");
         return Command::SUCCESS;
     }
-
-    // --- Removed processSingleDay() and processMonth() methods ---
-    // Their logic is now incorporated directly into handle() or delegated to AttendanceProcessor.
 }

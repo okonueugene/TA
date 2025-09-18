@@ -23,6 +23,13 @@ class Employee extends Model
         'team',
         'status',
         'acc_no',
+        'is_blowmolding',
+    ];
+
+    protected $dates = ['created_at', 'updated_at'];
+
+    protected $casts = [
+        'is_blowmolding' => 'boolean',
     ];
 
     // Clock-ins
@@ -62,7 +69,7 @@ class Employee extends Model
     public function scopePresentMonth($query)
     {
         $month = Carbon::now()->format('m');
-        $year = Carbon::now()->format('Y');
+        $year  = Carbon::now()->format('Y');
         return $query->whereIn('pin', function ($sub) use ($month, $year) {
             $sub->select(DB::raw("SUBSTRING(pin, 2)"))
                 ->from('attendances')
@@ -72,36 +79,37 @@ class Employee extends Model
     }
 
     public function shifts()
-{
-    return $this->hasMany(EmployeeShift::class, 'employee_pin', 'pin');
-}
+    {
+        return $this->hasMany(EmployeeShift::class, 'employee_pin', 'pin');
+    }
 
-public function getShiftsForDate($date)
-{
-    return $this->shifts()
-        ->where('shift_date', $date instanceof \Carbon\Carbon ? $date->format('Y-m-d') : $date)
-        ->get();
-}
+    public function getShiftsForDate($date)
+    {
+        return $this->shifts()
+            ->where('shift_date', $date instanceof \Carbon\Carbon  ? $date->format('Y-m-d') : $date)
+            ->get();
+    }
 
-public function getShiftsForDateRange($startDate, $endDate)
-{
-    return $this->shifts()
-        ->whereBetween('shift_date', [
-            $startDate instanceof \Carbon\Carbon ? $startDate->format('Y-m-d') : $startDate,
-            $endDate instanceof \Carbon\Carbon ? $endDate->format('Y-m-d') : $endDate
-        ])
-        ->get();
-}
+    public function getShiftsForDateRange($startDate, $endDate)
+    {
+        return $this->shifts()
+            ->whereBetween('shift_date', [
+                $startDate instanceof \Carbon\Carbon  ? $startDate->format('Y-m-d') : $startDate,
+                $endDate instanceof \Carbon\Carbon  ? $endDate->format('Y-m-d') : $endDate,
+            ])
+            ->get();
+    }
 
-public function getHoursWorkedForDate($date)
-{
-    return $this->getShiftsForDate($date)
-        ->sum('hours_worked');
-}
+    public function getHoursWorkedForDate($date)
+    {
+        return $this->getShiftsForDate($date)
+            ->sum('hours_worked');
+    }
 
-public function getHoursWorkedForDateRange($startDate, $endDate)
-{
-    return $this->getShiftsForDateRange($startDate, $endDate)
-        ->sum('hours_worked');
-}
+    public function getHoursWorkedForDateRange($startDate, $endDate)
+    {
+        return $this->getShiftsForDateRange($startDate, $endDate)
+            ->sum('hours_worked');
+    }
+
 }
